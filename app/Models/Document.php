@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\AcademicCycle;
 use App\Models\Form;
 use App\Models\Group;
 use App\Models\User;
@@ -54,5 +55,10 @@ class Document extends Model
     public function uploader()
     {
         return $this->belongsTo(User::class, 'uploaded_by');
+    }
+
+    public function cycle()
+    {
+        return $this->belongsTo(AcademicCycle::class, 'cycle_id');
     }
 }

@@ -91,4 +91,9 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Role::class, 'user_roles', 'user_id', 'role_id')->withPivot('assigned_at');
     }
+
+    public function documents()
+    {
+        return $this->hasMany(\App\Models\Document::class, 'uploaded_by');
+    }
 }

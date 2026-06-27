@@ -11,10 +11,40 @@ use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
+    private function formatUser(User $user): array
+    {
+        // Base64 data URIs are returned as-is; all other non-null values use the stable API route
+        $avatarUrl = null;
+        if ($user->avatar_url) {
+            $avatarUrl = str_starts_with($user->avatar_url, 'data:')
+                ? $user->avatar_url
+                : '/api/users/' . $user->id . '/avatar';
+        }
+
+        return [
+            'id' => $user->id,
+            'full_name' => $user->full_name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'area' => $user->area,
+            'avatar_url' => $avatarUrl,
+            'is_active' => (bool) $user->is_active,
+            'documents_count' => (int) ($user->documents_count ?? 0),
+            'roles' => $user->roles->map(fn (Role $role) => ['code' => $role->code, 'name' => $role->name])->values(),
+            'created_at' => $user->created_at?->toIso8601String(),
+        ];
+    }
+
     public function index(): JsonResponse
     {
+        $users = User::query()
+            ->with('roles')
+            ->withCount('documents')
+            ->orderBy('full_name')
+            ->get();
+
         return response()->json([
-            'data' => User::query()->with('roles')->orderBy('full_name')->get(),
+            'data' => $users->map(fn (User $user) => $this->formatUser($user))->values(),
         ]);
     }
 
@@ -45,12 +75,13 @@ class UserController extends Controller
         $roleIds = Role::query()->whereIn('code', $data['roles'])->pluck('id')->all();
         $user->roles()->sync($roleIds);
 
-        return response()->json(['data' => $user->load('roles')], 201);
+        return response()->json(['data' => $this->formatUser($user->load('roles'))], 201);
     }
 
     public function show(User $user): JsonResponse
     {
-        return response()->json(['data' => $user->load('roles')]);
+        $user->loadMissing('roles')->loadCount('documents');
+        return response()->json(['data' => $this->formatUser($user)]);
     }
 
     public function update(Request $request, User $user): JsonResponse
@@ -79,7 +110,8 @@ class UserController extends Controller
             $user->roles()->sync($roleIds);
         }
 
-        return response()->json(['data' => $user->fresh()->load('roles')]);
+        $user->load('roles')->loadCount('documents');
+        return response()->json(['data' => $this->formatUser($user)]);
     }
 
     public function destroy(User $user): JsonResponse

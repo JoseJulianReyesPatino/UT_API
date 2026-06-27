@@ -71,36 +71,52 @@ class DocumentController extends Controller
                 $filePath = 'uploads/' . ltrim($filePath, '/');
             }
             $fileUrl = '/storage/' . $filePath;
-            $downloadUrl = route('documents.file', ['document' => $document->id, 'download' => 1]);
+            $downloadUrl = '/documents/' . $document->id . '/file?download=1';
         }
+
+        $docenteName = $document->uploader?->full_name ?? $document->uploader?->name ?? 'Sin docente';
+        $formTitle = $document->form?->title ?? $document->apartado_label ?? 'Documento';
 
         return [
             'id' => $document->id,
+            // Campos en español (compatibilidad con código existente)
             'nombre' => $document->title,
             'tipo' => $tipo,
-            'tipoLabel' => $document->form?->title ?? $document->apartado_label ?? 'Documento',
+            'tipoLabel' => $formTitle,
             'materia' => $document->materia ?? 'Sin materia',
             'parcial' => $document->parcial ?? '-',
             'grupo' => $groupCode ?? '-',
             'plan' => $document->plan,
             'carrera' => $document->carrera_label,
-            'docente' => $document->uploader?->full_name ?? $document->uploader?->name ?? 'Sin docente',
-            'cycle_id' => $document->cycle_id,
-            'uploaded_by' => $document->uploaded_by,
-            'apartado_label' => $document->apartado_label,
+            'docente' => $docenteName,
             'fecha' => $submittedAt?->toDateString(),
             'hora' => $submittedAt?->format('H:i'),
             'status' => $document->status,
             'observaciones' => null,
             'fileUrl' => $fileUrl,
             'downloadUrl' => $downloadUrl,
+            // Campos en inglés esperados por el frontend
+            'title' => $document->title,
+            'form_title' => $formTitle,
+            'carrera_label' => $document->carrera_label,
+            'uploaded_by_name' => $docenteName,
+            'uploaded_by' => $document->uploaded_by,
+            'cycle_id' => $document->cycle_id,
+            'cycle_name' => $document->cycle?->name,
+            'apartado_label' => $document->apartado_label,
+            'group_code' => $groupCode,
+            'file_path' => $document->file_path,
+            'submitted_at' => $submittedAt?->toIso8601String(),
+            'reviewed_at' => $document->reviewed_at?->toIso8601String(),
+            'returned_at' => $document->returned_at?->toIso8601String(),
+            'resubmitted_at' => $document->resubmitted_at?->toIso8601String(),
         ];
     }
 
     public function index(Request $request): JsonResponse
     {
         $isAdmin = $this->isAdmin($request);
-        $query = Document::query()->with(['form', 'group', 'uploader']);
+        $query = Document::query()->with(['form', 'group', 'uploader', 'cycle']);
 
         if ($request->filled('uploaded_by')) {
             $requestedUploaderId = $request->integer('uploaded_by');
@@ -337,7 +353,7 @@ class DocumentController extends Controller
         }
 
         $query = Document::where('cycle_id', $activeCycle->id)
-            ->with(['form', 'group', 'uploader']);
+            ->with(['form', 'group', 'uploader', 'cycle']);
 
         if (!$this->isAdmin($request)) {
             $query->where('uploaded_by', $request->user()->id);
@@ -363,7 +379,7 @@ class DocumentController extends Controller
         $cycleId = $request->integer('cycle_id', $this->getActiveCycleId());
 
         $query = Document::where('uploaded_by', $docenteId)
-            ->with(['form', 'group', 'uploader']);
+            ->with(['form', 'group', 'uploader', 'cycle']);
 
         if ($cycleId) {
             $query->where('cycle_id', $cycleId);
@@ -394,7 +410,7 @@ class DocumentController extends Controller
         $cycleId = $request->integer('cycle_id', $this->getActiveCycleId());
 
         $query = Document::where('status', 'pendiente')
-            ->with(['form', 'group', 'uploader']);
+            ->with(['form', 'group', 'uploader', 'cycle']);
 
         if ($cycleId) {
             $query->where('cycle_id', $cycleId);

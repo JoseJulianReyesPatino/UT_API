@@ -156,13 +156,15 @@ class MessageController extends Controller
                         'content' => $message->body,
                         'timestamp' => $message->created_at?->format('Y-m-d H:i:s') ?? '',
                         'isOwn' => (int) $message->sender_user_id === $currentUserId,
-                        'avatar_url' => $this->getUserAvatar($message->sender),
-                        'avatar' => $this->getUserAvatar($message->sender),
+                        'avatar_url' => $this->getUserAvatarUrl($message->sender),
+                        'avatar' => $this->getUserAvatarUrl($message->sender),
+                        'avatar_fallback' => $this->getUserAvatarFallback($message->sender),
                         'attachments' => $message->attachments->map(function (MessageAttachment $attachment) {
                             return [
                                 'name' => $attachment->file_name,
                                 'typeLabel' => $attachment->file_type_label ?? 'Archivo',
                                 'sizeLabel' => $this->formatFileSize($attachment->file_size_bytes),
+                                'url' => $this->attachmentUrl($attachment),
                             ];
                         })->toArray(),
                         'replyTo' => $message->replyTo ? [
@@ -176,6 +178,32 @@ class MessageController extends Controller
         ]);
     }
 
+    public function updateMessage(Request $request, Conversation $conversation, Message $message): JsonResponse
+    {
+        $data = $request->validate([
+            'body' => ['required', 'string'],
+        ]);
+
+        if (! $this->isConversationAllowed($conversation, $request->user())) {
+            return response()->json(['message' => 'No permitido editar mensajes en esta conversación'], 403);
+        }
+
+        if ($message->conversation_id !== $conversation->id) {
+            return response()->json(['message' => 'Mensaje no encontrado en esta conversación'], 404);
+        }
+
+        if ((int) $message->sender_user_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'No autorizado para editar este mensaje'], 403);
+        }
+
+        $message->update(['body' => $data['body']]);
+
+        return response()->json(['data' => [
+            'id' => $message->id,
+            'content' => $message->body,
+        ]]);
+    }
+
     public function storeMessage(Request $request, Conversation $conversation): JsonResponse
     {
         $data = $request->validate([
@@ -183,6 +211,8 @@ class MessageController extends Controller
             'reply_to_message_id' => ['nullable', 'integer', 'exists:messages,id'],
             'attachments' => ['sometimes', 'array'],
             'attachments.*' => ['file'],
+            'attachment_urls' => ['sometimes', 'array'],
+            'attachment_urls.*' => ['string'],
         ]);
 
         // Ensure conversation is allowed and the user is participant
@@ -215,6 +245,18 @@ class MessageController extends Controller
             $attachments[] = $attachment;
         }
 
+        foreach ($request->input('attachment_urls', []) as $url) {
+            if (! $url) continue;
+            $attachment = MessageAttachment::query()->create([
+                'message_id' => $message->id,
+                'file_name' => basename(parse_url($url, PHP_URL_PATH)) ?: 'Enlace',
+                'file_path' => $url,
+                'file_size_bytes' => null,
+                'file_type_label' => 'Enlace',
+            ]);
+            $attachments[] = $attachment;
+        }
+
         DB::table('conversations')->where('id', $conversation->id)->update(['updated_at' => now()]);
         DB::table('conversation_participants')
             ->where('conversation_id', $conversation->id)
@@ -228,19 +270,59 @@ class MessageController extends Controller
                 'content' => $message->body,
                 'timestamp' => $message->created_at?->format('Y-m-d H:i:s') ?? now()->format('Y-m-d H:i:s'),
                 'isOwn' => true,
-                'avatar_url' => $this->getUserAvatar($request->user()),
-                'avatar' => $this->getUserAvatar($request->user()),
+                'avatar_url' => $this->getUserAvatarUrl($request->user()),
+                'avatar' => $this->getUserAvatarUrl($request->user()),
+                'avatar_fallback' => $this->getUserAvatarFallback($request->user()),
                 'attachments' => collect($attachments)->map(function (MessageAttachment $attachment) {
                     return [
                         'name' => $attachment->file_name,
                         'typeLabel' => $attachment->file_type_label ?? 'Archivo',
                         'sizeLabel' => $this->formatFileSize($attachment->file_size_bytes),
-                        'url' => Storage::url($attachment->file_path),
+                        'url' => $this->attachmentUrl($attachment),
                     ];
                 })->values()->toArray(),
                 'replyTo' => null,
             ],
         ], 201);
+    }
+
+    public function downloadAttachment(Request $request, MessageAttachment $attachment): mixed
+    {
+        $message = $attachment->message;
+        if (! $message) {
+            return response()->json(['message' => 'Adjunto no encontrado'], 404);
+        }
+
+        $conversation = Conversation::find($message->conversation_id);
+        if (! $conversation || ! $this->isConversationAllowed($conversation, $request->user())) {
+            return response()->json(['message' => 'Acceso denegado'], 403);
+        }
+
+        if ($attachment->file_type_label === 'Enlace') {
+            return redirect($attachment->file_path);
+        }
+
+        $fullPath = Storage::disk('public')->path($attachment->file_path);
+
+        if (! file_exists($fullPath)) {
+            return response()->json(['message' => 'Archivo no encontrado'], 404);
+        }
+
+        $mime = mime_content_type($fullPath) ?: 'application/octet-stream';
+
+        if ($request->boolean('download')) {
+            return response()->download($fullPath, $attachment->file_name);
+        }
+
+        return response()->file($fullPath, ['Content-Type' => $mime]);
+    }
+
+    private function attachmentUrl(MessageAttachment $attachment): string
+    {
+        if ($attachment->file_type_label === 'Enlace') {
+            return $attachment->file_path;
+        }
+        return '/api/message-attachments/' . $attachment->id . '/file';
     }
 
     private function formatFileSize(?int $sizeBytes): string
@@ -299,47 +381,41 @@ class MessageController extends Controller
         return response()->json(['message' => 'Mensaje eliminado correctamente']);
     }
 
-    /**
-     * Obtiene la representación del avatar de un usuario
-     * - Si tiene avatar_url, devuelve la ruta URL
-     * - Si no, devuelve sus iniciales (máximo 2 letras)
-     */
-    private function getUserAvatar(?User $user): string
+     private function getUserAvatarUrl(?User $user): ?string
     {
-        if (!$user) {
-            return 'U';
+        if (!$user || empty($user->avatar_url)) {
+            return null;
         }
 
-        // Si el usuario tiene una URL de avatar guardada
-        if (!empty($user->avatar_url)) {
-            // Si ya es una URL completa (http/https) o es una ruta de API
-            if (str_starts_with($user->avatar_url, 'http') ||
-                str_starts_with($user->avatar_url, '/api/users/') ||
-                str_starts_with($user->avatar_url, '/storage/')) {
-                return $user->avatar_url;
-            }
-            // Si es solo el nombre del archivo, construir la ruta de storage
-            return '/storage/' . ltrim($user->avatar_url, '/');
+        $url = $user->avatar_url;
+
+        if (str_starts_with($url, 'http') || str_starts_with($url, 'data:')) {
+            return $url;
         }
 
-        // Si no tiene avatar, devolver iniciales
-        $name = $user->full_name ?? '';
+        if (str_starts_with($url, '/api/users/') || str_starts_with($url, '/storage/')) {
+            return $url;
+        }
+
+        return '/storage/' . ltrim($url, '/');
+    }
+
+    private function getUserAvatarFallback(?User $user): string
+    {
+        $name = $user?->full_name ?? '';
         $parts = preg_split('/\s+/', trim($name)) ?: [];
 
-        if (empty($parts)) {
+        if (empty($parts) || $parts === ['']) {
             return 'U';
         }
 
-        // Tomar primera letra del primer nombre
-        $firstInitial = mb_strtoupper(mb_substr($parts[0], 0, 1));
+        $first = mb_strtoupper(mb_substr($parts[0], 0, 1));
 
-        // Si hay más de una palabra, tomar la primera letra de la última palabra (apellido)
         if (count($parts) > 1) {
-            $lastInitial = mb_strtoupper(mb_substr(end($parts), 0, 1));
-            return $firstInitial . $lastInitial;
+            return $first . mb_strtoupper(mb_substr(end($parts), 0, 1));
         }
 
-        return $firstInitial;
+        return $first;
     }
 
    private function formatConversation(Conversation $conversation, int $currentUserId): array
@@ -372,15 +448,17 @@ class MessageController extends Controller
             'lastMessage' => $latestMessage?->body ?? 'Nuevo chat',
             'timestamp' => $latestMessage?->created_at?->format('Y-m-d H:i:s') ?? $conversation->updated_at?->format('Y-m-d H:i:s') ?? '',
             'unread' => (int) ($pivot->unread_count ?? 0),
-            'avatar_url' => $this->getUserAvatar($otherParticipant),
-            'avatar' => $this->getUserAvatar($otherParticipant),
+            'avatar_url' => $this->getUserAvatarUrl($otherParticipant),
+            'avatar' => $this->getUserAvatarUrl($otherParticipant),
+            'avatar_fallback' => $this->getUserAvatarFallback($otherParticipant),
             'status' => 'offline',
             'participants' => $conversation->participants->map(function (User $participant) {
                 return [
                     'id' => $participant->id,
                     'name' => $participant->full_name,
                     'role' => $participant->roles->first()?->code ?? 'docente',
-                    'avatar_url' => $this->getUserAvatar($participant),
+                    'avatar_url' => $this->getUserAvatarUrl($participant),
+                    'avatar_fallback' => $this->getUserAvatarFallback($participant),
                 ];
             })->values(),
             'lastMessageAt' => $latestMessage?->created_at?->format('Y-m-d H:i:s') ?? $conversation->updated_at?->format('Y-m-d H:i:s') ?? '',

@@ -20,17 +20,12 @@ class AuthController extends Controller
         $firstNames = count($parts) <= 1 ? trim($user->full_name) : implode(' ', array_slice($parts, 0, -1));
         $lastNames = count($parts) <= 1 ? '' : (string) array_slice($parts, -1)[0];
 
-        // Asegurar que avatar_url sea una URL completa o null
-        $avatarUrl = $user->avatar_url;
-        if ($avatarUrl && !str_starts_with($avatarUrl, 'http')) {
-            if (str_starts_with($avatarUrl, '/storage/')) {
-                $avatarUrl = env('APP_URL') . $avatarUrl;
-            } elseif (str_starts_with($avatarUrl, '/uploads/')) {
-                // CORREGIR rutas antiguas
-                $avatarUrl = env('APP_URL') . str_replace('/uploads/', '/storage/', $avatarUrl);
-            } elseif (!str_starts_with($avatarUrl, '/')) {
-                $avatarUrl = env('APP_URL') . '/storage/' . $avatarUrl;
-            }
+        // Base64 data URIs are returned as-is; all other non-null values use the stable API route
+        $avatarUrl = null;
+        if ($user->avatar_url) {
+            $avatarUrl = str_starts_with($user->avatar_url, 'data:')
+                ? $user->avatar_url
+                : '/api/users/' . $user->id . '/avatar';
         }
 
         return [
@@ -109,18 +104,25 @@ class AuthController extends Controller
         ]);
 
         if ($request->hasFile('avatar')) {
-            // Eliminar avatar anterior si existe
-            if ($user->avatar_url) {
-                $oldPath = str_replace('/storage/', '', parse_url($user->avatar_url, PHP_URL_PATH) ?: '');
-                if ($oldPath && Storage::disk('public')->exists($oldPath)) {
-                    Storage::disk('public')->delete($oldPath);
-                }
+            $avatarDir = public_path('uploads/avatars');
+            if (!is_dir($avatarDir)) {
+                mkdir($avatarDir, 0755, true);
             }
 
-            // Guardar nuevo avatar
-            $path = $request->file('avatar')->store('avatars', 'public');
-            // Guardar URL completa
-            $data['avatar_url'] = env('APP_URL') . '/storage/' . $path;
+            // Delete all previous avatar files for this user
+            foreach (glob($avatarDir . '/avatar_' . $user->id . '_*') ?: [] as $old) {
+                @unlink($old);
+            }
+            // Also clean up any files stored in the old Laravel disk location
+            foreach (glob(storage_path('app/public/avatars/avatar_' . $user->id . '_*')) ?: [] as $old) {
+                @unlink($old);
+            }
+
+            $ext = $request->file('avatar')->getClientOriginalExtension() ?: 'png';
+            $storedName = 'avatar_' . $user->id . '_' . uniqid() . '.' . $ext;
+            $request->file('avatar')->move($avatarDir, $storedName);
+
+            $data['avatar_url'] = '/api/users/' . $user->id . '/avatar';
         }
 
         $user->fill([

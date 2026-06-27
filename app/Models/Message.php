@@ -10,6 +10,8 @@ class Message extends Model
 {
     protected $table = 'messages';
 
+    const UPDATED_AT = null;
+
     protected $fillable = [
         'conversation_id',
         'sender_user_id',

@@ -9,6 +9,8 @@ class MessageAttachment extends Model
 {
     protected $table = 'message_attachments';
 
+    const UPDATED_AT = null;
+
     protected $fillable = [
         'message_id',
         'file_name',
