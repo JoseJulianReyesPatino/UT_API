@@ -32,7 +32,9 @@ class Document extends Model
         'submitted_at',
         'reviewed_at',
         'returned_at',
+        'returned_comment',
         'resubmitted_at',
+        'nota',
     ];
 
     protected $casts = [

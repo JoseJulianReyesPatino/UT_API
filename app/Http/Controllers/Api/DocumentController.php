@@ -92,7 +92,8 @@ class DocumentController extends Controller
             'fecha' => $submittedAt?->toDateString(),
             'hora' => $submittedAt?->format('H:i'),
             'status' => $document->status,
-            'observaciones' => null,
+            'observaciones' => $document->returned_comment,
+            'returned_comment' => $document->returned_comment,
             'fileUrl' => $fileUrl,
             'downloadUrl' => $downloadUrl,
             // Campos en inglés esperados por el frontend
@@ -110,6 +111,7 @@ class DocumentController extends Controller
             'reviewed_at' => $document->reviewed_at?->toIso8601String(),
             'returned_at' => $document->returned_at?->toIso8601String(),
             'resubmitted_at' => $document->resubmitted_at?->toIso8601String(),
+            'nota' => $document->nota,
         ];
     }
 
@@ -176,6 +178,7 @@ class DocumentController extends Controller
             'parcial' => ['nullable', 'string', 'max:40'],
             'group_id' => ['nullable', 'integer', 'exists:groups,id'],
             'file' => ['required', 'file', 'mimes:pdf', 'max:10240'],
+            'nota' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $resolvedCycleId = $this->resolveCycleId(
@@ -207,6 +210,7 @@ class DocumentController extends Controller
             'file_size_bytes' => $request->file('file')->getSize(),
             'status' => 'pendiente',
             'submitted_at' => now(),
+            'nota' => $data['nota'] ?? null,
         ]);
 
         return response()->json(['data' => $document], 201);
@@ -331,11 +335,16 @@ class DocumentController extends Controller
 
     public function returnDocument(Request $request, Document $document): JsonResponse
     {
+        $data = $request->validate([
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
         $document->status = 'devuelto';
         $document->returned_at = now();
+        $document->returned_comment = $data['notes'] ?? null;
         $document->save();
 
-        return response()->json(['data' => $document->fresh()]);
+        return response()->json(['data' => $this->formatDocument($document->fresh())]);
     }
 
     private function getActiveCycleId(): ?int
