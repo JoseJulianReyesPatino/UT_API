@@ -59,7 +59,7 @@ class UserController extends Controller
             'avatar_url' => ['nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
             'roles' => ['required', 'array', 'min:1'],
-            'roles.*' => ['in:administrador,docente,tutor'],
+            'roles.*' => ['in:administrador,docente,tutor,supervisor'],
         ]);
 
         $user = User::query()->create([
@@ -95,7 +95,7 @@ class UserController extends Controller
             'avatar_url' => ['nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
             'roles' => ['sometimes', 'array', 'min:1'],
-            'roles.*' => ['in:administrador,docente,tutor'],
+            'roles.*' => ['in:administrador,docente,tutor,supervisor'],
         ]);
 
         if (!empty($data['password'])) {

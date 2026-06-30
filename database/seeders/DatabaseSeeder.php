@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             ['code' => 'administrador', 'name' => 'Administrador'],
             ['code' => 'docente', 'name' => 'Docente'],
             ['code' => 'tutor', 'name' => 'Tutor'],
+            ['code' => 'supervisor', 'name' => 'Supervisor'],
         ] as $role) {
             $roles[$role['code']] = Role::query()->updateOrCreate(['code' => $role['code']], ['name' => $role['name']]);
         }
