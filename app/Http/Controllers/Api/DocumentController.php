@@ -49,9 +49,19 @@ class DocumentController extends Controller
             ->exists();
     }
 
+    private function isSupervisor(Request $request): bool
+    {
+        $user = $request->user();
+        if (!$user) {
+            return false;
+        }
+
+        return $user->roles()->where('code', 'supervisor')->exists();
+    }
+
     private function canAccessDocument(Request $request, Document $document): bool
     {
-        return $this->isAdmin($request) || $document->uploaded_by === $request->user()?->id;
+        return $this->isAdmin($request) || $this->isSupervisor($request) || $document->uploaded_by === $request->user()?->id;
     }
 
     private function formatDocument(Document $document): array
@@ -118,16 +128,18 @@ class DocumentController extends Controller
     public function index(Request $request): JsonResponse
     {
         $isAdmin = $this->isAdmin($request);
+        $isSupervisor = $this->isSupervisor($request);
+        $canSeeAll = $isAdmin || $isSupervisor;
         $query = Document::query()->with(['form', 'group', 'uploader', 'cycle']);
 
         if ($request->filled('uploaded_by')) {
             $requestedUploaderId = $request->integer('uploaded_by');
-            if ($isAdmin) {
+            if ($canSeeAll) {
                 $query->where('uploaded_by', $requestedUploaderId);
             } else {
                 $query->where('uploaded_by', $request->user()->id);
             }
-        } elseif (!$isAdmin) {
+        } elseif (!$canSeeAll) {
             $query->where('uploaded_by', $request->user()->id);
         }
 
@@ -152,8 +164,20 @@ class DocumentController extends Controller
 
         if ($request->filled('form_id')) {
             $query->where('form_id', $request->integer('form_id'));
+        } elseif ($request->filled('form_codes')) {
+            $raw   = $request->input('form_codes');
+            $parts = is_array($raw)
+                ? $raw
+                : explode(',', (string) $raw);
+            $codes = array_values(array_filter(array_map(
+                fn($c) => str_replace('-', '_', trim($c)),
+                $parts
+            )));
+            $query->whereHas('form', function ($formQuery) use ($codes) {
+                $formQuery->whereIn('form_code', $codes);
+            });
         } elseif ($request->filled('form_code')) {
-            $formCode = str_replace('-', '_', $request->string('form_code'));
+            $formCode = str_replace('-', '_', (string) $request->input('form_code', ''));
             $query->whereHas('form', function ($formQuery) use ($formCode) {
                 $formQuery->where('form_code', $formCode);
             });
@@ -177,7 +201,15 @@ class DocumentController extends Controller
             'materia' => ['nullable', 'string', 'max:140'],
             'parcial' => ['nullable', 'string', 'max:40'],
             'group_id' => ['nullable', 'integer', 'exists:groups,id'],
-            'file' => ['required', 'file', 'mimes:pdf', 'max:10240'],
+            'file' => ['required', 'file', 'max:10240', function ($attribute, $value, $fail) {
+                $ext        = strtolower($value->getClientOriginalExtension());
+                $mime       = strtolower($value->getMimeType() ?? '');
+                $clientMime = strtolower($value->getClientMimeType() ?? '');
+                $validMimes = ['application/pdf', 'application/x-pdf', 'application/acrobat', 'application/vnd.pdf', 'text/pdf'];
+                if ($ext !== 'pdf' && !in_array($mime, $validMimes) && !in_array($clientMime, $validMimes)) {
+                    $fail('El archivo debe ser un PDF.');
+                }
+            }],
             'nota' => ['nullable', 'string', 'max:1000'],
         ]);
 

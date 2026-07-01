@@ -28,7 +28,16 @@ class AuthController extends Controller
                 : '/api/users/' . $user->id . '/avatar';
         }
 
-        return [
+        $roles = $user->roles()->pluck('code')->values();
+        $isSupervisor = $roles->contains('supervisor');
+
+        $supervisorSections = null;
+        if ($isSupervisor) {
+            $perm = $user->supervisorSectionPermission()->first();
+            $supervisorSections = $perm?->sections ?? [];
+        }
+
+        $payload = [
             'id' => $user->id,
             'full_name' => $user->full_name,
             'first_names' => $firstNames,
@@ -39,8 +48,14 @@ class AuthController extends Controller
             'avatar_url' => $avatarUrl,
             'is_active' => $user->is_active,
             'created_at' => $user->created_at?->toIso8601String(),
-            'roles' => $user->roles()->pluck('code')->values(),
+            'roles' => $roles,
         ];
+
+        if ($supervisorSections !== null) {
+            $payload['supervisor_sections'] = $supervisorSections;
+        }
+
+        return $payload;
     }
 
     public function login(Request $request): JsonResponse

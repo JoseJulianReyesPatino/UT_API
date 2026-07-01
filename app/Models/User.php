@@ -96,4 +96,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(\App\Models\Document::class, 'uploaded_by');
     }
+
+    public function supervisorSectionPermission()
+    {
+        return $this->hasOne(SupervisorSectionPermission::class);
+    }
 }

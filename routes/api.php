@@ -56,6 +56,7 @@ use App\Http\Controllers\Api\FormController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\GroupController;
+use App\Http\Controllers\Api\SupervisorPermissionController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -106,6 +107,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/conversations/{conversation}/messages/{message}', [MessageController::class, 'destroy']);
     Route::patch('/conversations/{conversation}/read', [MessageController::class, 'markAsRead']);
     Route::get('/message-attachments/{attachment}/file', [MessageController::class, 'downloadAttachment']);
+
+    // Supervisor section permissions
+    Route::get('/supervisor-permissions', [SupervisorPermissionController::class, 'index']);
+    Route::put('/supervisor-permissions/{userId}', [SupervisorPermissionController::class, 'update']);
 
     // Document distribution and filtering endpoints
     Route::get('/documents-active-cycle', [DocumentController::class, 'byCycleActive']);
