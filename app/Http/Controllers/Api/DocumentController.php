@@ -12,6 +12,18 @@ use Illuminate\Support\Facades\Storage;
 
 class DocumentController extends Controller
 {
+    private function extractCuatrimestreFromGroupCode(?string $groupCode): ?string
+    {
+        $normalized = $groupCode ? strtoupper(str_replace('_', '-', trim($groupCode))) : '';
+        $cuatrimestre = null;
+
+        if ($normalized !== '' && preg_match('/(\d{1,2})/', $normalized, $matches)) {
+            $cuatrimestre = $matches[1];
+        }
+
+        return $cuatrimestre;
+    }
+
     private function resolveCycleId(?int $requestedCycleId = null, ?int $groupId = null, ?int $currentCycleId = null): ?int
     {
         if ($requestedCycleId && $requestedCycleId > 0) {
@@ -68,6 +80,7 @@ class DocumentController extends Controller
     {
         $submittedAt = $document->submitted_at ?? $document->created_at;
         $groupCode = $document->group?->group_code ?? ($document->group_id ? (string) $document->group_id : null);
+        $cuatrimestre = $this->extractCuatrimestreFromGroupCode($groupCode);
         $tipo = $document->apartado_label
             ? strtolower(str_replace(' ', '-', $document->apartado_label))
             : ($document->form?->form_code ?? 'documento');
@@ -95,6 +108,7 @@ class DocumentController extends Controller
             'tipoLabel' => $formTitle,
             'materia' => $document->materia ?? 'Sin materia',
             'parcial' => $document->parcial ?? '-',
+            'cuatrimestre' => $cuatrimestre,
             'grupo' => $groupCode ?? '-',
             'plan' => $document->plan,
             'carrera' => $document->carrera_label,
