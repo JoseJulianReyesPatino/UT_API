@@ -221,6 +221,14 @@ class DocumentController extends Controller
                 $validMimes = ['application/pdf', 'application/x-pdf', 'application/acrobat', 'application/vnd.pdf', 'text/pdf'];
                 if ($ext !== 'pdf' && !in_array($mime, $validMimes) && !in_array($clientMime, $validMimes)) {
                     $fail('El archivo debe ser un PDF.');
+                    return;
+                }
+                // Verify actual file content via magic bytes (%PDF-)
+                $handle = fopen($value->getPathname(), 'rb');
+                $header = fread($handle, 5);
+                fclose($handle);
+                if ($header !== '%PDF-') {
+                    $fail('El archivo no es un PDF válido. Asegúrate de subir el archivo correcto y no una página web o acceso directo.');
                 }
             }],
             'nota' => ['nullable', 'string', 'max:1000'],
@@ -237,7 +245,11 @@ class DocumentController extends Controller
             ], 422);
         }
 
-        $path = $request->file('file')->store('documents', 'public');
+        $file     = $request->file('file');
+        $ext      = strtolower($file->getClientOriginalExtension()) ?: 'pdf';
+        $safeName = 'doc_' . uniqid('', true) . '.' . $ext;
+        $subDir   = 'documents/' . now()->format('Y/m');
+        $path     = $file->storeAs($subDir, $safeName, 'public');
 
         $document = Document::query()->create([
             'form_id' => $data['form_id'],
@@ -357,20 +369,11 @@ class DocumentController extends Controller
             return null;
         }
 
+        // Ruta normalizada (quita prefijos residuales de versiones anteriores)
         $normalized = ltrim(trim($filePath), '/');
-        $candidates = array_values(array_unique([
-            $normalized,
-            preg_replace('#^storage/#', '', $normalized),
-            preg_replace('#^public/#', '', $normalized),
-            preg_replace('#^uploads/#', '', $normalized),
-            preg_replace('#^documents/#', '', $normalized),
-            'uploads/' . $normalized,
-            'documents/' . $normalized,
-            'uploads/' . preg_replace('#^documents/#', '', $normalized),
-            'documents/' . preg_replace('#^uploads/#', '', $normalized),
-        ]));
+        $stripped   = preg_replace('#^(storage|public|uploads)/+#', '', $normalized);
 
-        foreach ($candidates as $candidate) {
+        foreach ([$normalized, $stripped, 'documents/' . $stripped] as $candidate) {
             if ($candidate && Storage::disk('public')->exists($candidate)) {
                 return $candidate;
             }

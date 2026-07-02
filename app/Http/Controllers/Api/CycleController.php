@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AcademicCycle;
+use App\Models\Document;
+use App\Models\DocumentStatusHistory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class CycleController extends Controller
 {
@@ -66,8 +69,46 @@ class CycleController extends Controller
 
     public function destroy(AcademicCycle $cycle): JsonResponse
     {
-        $cycle->delete();
+        DB::transaction(function () use ($cycle) {
+            $documents = Document::where('cycle_id', $cycle->id)->get();
+
+            // Delete physical PDF files from disk
+            foreach ($documents as $document) {
+                $resolved = $this->resolveDocumentPath($document->file_path);
+                if ($resolved) {
+                    Storage::disk('public')->delete($resolved);
+                }
+            }
+
+            // Delete status history records (FK constraint)
+            $documentIds = $documents->pluck('id');
+            DocumentStatusHistory::whereIn('document_id', $documentIds)->delete();
+
+            // Delete document records
+            Document::where('cycle_id', $cycle->id)->delete();
+
+            // Delete the cycle itself
+            $cycle->delete();
+        });
 
         return response()->json(['message' => 'Ciclo eliminado']);
+    }
+
+    private function resolveDocumentPath(?string $filePath): ?string
+    {
+        if (!$filePath) {
+            return null;
+        }
+
+        $normalized = ltrim(trim($filePath), '/');
+        $stripped   = preg_replace('#^(storage|public|uploads)/+#', '', $normalized);
+
+        foreach ([$normalized, $stripped, 'documents/' . $stripped] as $candidate) {
+            if ($candidate && Storage::disk('public')->exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 }

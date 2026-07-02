@@ -107,49 +107,61 @@ class AuthController extends Controller
     }
 
     public function updateProfile(Request $request): JsonResponse
-    {
-        $user = $request->user();
+{
+    $user = $request->user();
 
-        $data = $request->validate([
-            'full_name' => ['sometimes', 'string', 'max:150'],
-            'phone' => ['nullable', 'digits:10'],
-            'area' => ['nullable', 'string', 'max:120'],
-            'avatar' => ['nullable', 'image', 'max:4096'],
-            'avatar_url' => ['nullable', 'string', 'max:255'],
-        ]);
+    $data = $request->validate([
+        'full_name' => ['sometimes', 'string', 'max:150'],
+        'phone' => ['nullable', 'digits:10'],
+        'area' => ['nullable', 'string', 'max:120'],
+        'avatar' => ['nullable', 'image', 'max:4096'],
+        'avatar_url' => ['nullable', 'string', 'max:255'],
+        'remove_avatar' => ['sometimes', 'boolean'],
+    ]);
 
-        if ($request->hasFile('avatar')) {
-            $avatarDir = public_path('uploads/avatars');
-            if (!is_dir($avatarDir)) {
-                mkdir($avatarDir, 0755, true);
-            }
-
-            // Delete all previous avatar files for this user
-            foreach (glob($avatarDir . '/avatar_' . $user->id . '_*') ?: [] as $old) {
-                @unlink($old);
-            }
-            // Also clean up any files stored in the old Laravel disk location
-            foreach (glob(storage_path('app/public/avatars/avatar_' . $user->id . '_*')) ?: [] as $old) {
-                @unlink($old);
-            }
-
-            $ext = $request->file('avatar')->getClientOriginalExtension() ?: 'png';
-            $storedName = 'avatar_' . $user->id . '_' . uniqid() . '.' . $ext;
-            $request->file('avatar')->move($avatarDir, $storedName);
-
-            $data['avatar_url'] = '/api/users/' . $user->id . '/avatar';
+    if ($request->boolean('remove_avatar')) {
+        $avatarDir = public_path('uploads/avatars');
+        foreach (glob($avatarDir . '/avatar_' . $user->id . '_*') ?: [] as $old) {
+            @unlink($old);
+        }
+        foreach (glob(storage_path('app/public/avatars/avatar_' . $user->id . '_*')) ?: [] as $old) {
+            @unlink($old);
         }
 
-        $user->fill([
-            'full_name' => $data['full_name'] ?? $user->full_name,
-            'phone' => array_key_exists('phone', $data) ? $data['phone'] : $user->phone,
-            'area' => array_key_exists('area', $data) ? $data['area'] : $user->area,
-            'avatar_url' => array_key_exists('avatar_url', $data) ? $data['avatar_url'] : $user->avatar_url,
-        ])->save();
-
-        return response()->json(['user' => $this->formatUser($user->fresh())]);
+        $data['avatar_url'] = null;
     }
 
+    if ($request->hasFile('avatar')) {
+        $avatarDir = public_path('uploads/avatars');
+        if (!is_dir($avatarDir)) {
+            mkdir($avatarDir, 0755, true);
+        }
+
+        // Delete all previous avatar files for this user
+        foreach (glob($avatarDir . '/avatar_' . $user->id . '_*') ?: [] as $old) {
+            @unlink($old);
+        }
+        // Also clean up any files stored in the old Laravel disk location
+        foreach (glob(storage_path('app/public/avatars/avatar_' . $user->id . '_*')) ?: [] as $old) {
+            @unlink($old);
+        }
+
+        $ext = $request->file('avatar')->getClientOriginalExtension() ?: 'png';
+        $storedName = 'avatar_' . $user->id . '_' . uniqid() . '.' . $ext;
+        $request->file('avatar')->move($avatarDir, $storedName);
+
+        $data['avatar_url'] = '/api/users/' . $user->id . '/avatar';
+    }
+
+    $user->fill([
+        'full_name' => $data['full_name'] ?? $user->full_name,
+        'phone' => array_key_exists('phone', $data) ? $data['phone'] : $user->phone,
+        'area' => array_key_exists('area', $data) ? $data['area'] : $user->area,
+        'avatar_url' => array_key_exists('avatar_url', $data) ? $data['avatar_url'] : $user->avatar_url,
+    ])->save();
+
+    return response()->json(['user' => $this->formatUser($user->fresh())]);
+}
     public function updatePassword(Request $request): JsonResponse
     {
         $data = $request->validate([
