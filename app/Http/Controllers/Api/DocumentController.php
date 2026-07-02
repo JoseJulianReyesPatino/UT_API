@@ -89,12 +89,11 @@ class DocumentController extends Controller
         $downloadUrl = null;
 
         if ($document->file_path) {
-            $filePath = $document->file_path;
-            if (!str_contains($filePath, 'uploads/')) {
-                $filePath = 'uploads/' . ltrim($filePath, '/');
+            $storedPath = $this->resolveDocumentStoragePath($document->file_path);
+            if ($storedPath) {
+                $fileUrl = Storage::disk('public')->url($storedPath);
+                $downloadUrl = '/documents/' . $document->id . '/file?download=1';
             }
-            $fileUrl = '/storage/' . $filePath;
-            $downloadUrl = '/documents/' . $document->id . '/file?download=1';
         }
 
         $docenteName = $document->uploader?->full_name ?? $document->uploader?->name ?? 'Sin docente';
@@ -337,32 +336,47 @@ class DocumentController extends Controller
             abort(403);
         }
 
-        if (!$document->file_path) {
+        $storedPath = $document->file_path ? $this->resolveDocumentStoragePath($document->file_path) : null;
+
+        if (!$storedPath) {
             abort(404, 'Archivo no encontrado');
         }
 
-        $filePath = $document->file_path;
-
-        if (!str_contains($filePath, 'uploads/') && !str_contains($filePath, 'avatars/')) {
-            $filePath = 'uploads/' . ltrim($filePath, '/');
+        if ($request->boolean('download')) {
+            return Storage::disk('public')->download($storedPath, $document->title . '.pdf');
         }
 
-        $fullPath = storage_path('app/public/' . $filePath);
+        return response()->file(Storage::disk('public')->path($storedPath), [
+            'Content-Type' => $document->mime_type ?? 'application/pdf',
+        ]);
+    }
 
-        if (!file_exists($fullPath)) {
-            $fullPath = storage_path('app/public/' . ltrim($document->file_path, '/'));
-            if (!file_exists($fullPath)) {
-                abort(404, 'Archivo no encontrado');
+    private function resolveDocumentStoragePath(?string $filePath): ?string
+    {
+        if (!$filePath) {
+            return null;
+        }
+
+        $normalized = ltrim(trim($filePath), '/');
+        $candidates = array_values(array_unique([
+            $normalized,
+            preg_replace('#^storage/#', '', $normalized),
+            preg_replace('#^public/#', '', $normalized),
+            preg_replace('#^uploads/#', '', $normalized),
+            preg_replace('#^documents/#', '', $normalized),
+            'uploads/' . $normalized,
+            'documents/' . $normalized,
+            'uploads/' . preg_replace('#^documents/#', '', $normalized),
+            'documents/' . preg_replace('#^uploads/#', '', $normalized),
+        ]));
+
+        foreach ($candidates as $candidate) {
+            if ($candidate && Storage::disk('public')->exists($candidate)) {
+                return $candidate;
             }
         }
 
-        if ($request->boolean('download')) {
-            return response()->download($fullPath, $document->title . '.pdf');
-        }
-
-        return response()->file($fullPath, [
-            'Content-Type' => $document->mime_type ?? 'application/pdf',
-        ]);
+        return null;
     }
 
     public function review(Request $request, Document $document): JsonResponse
