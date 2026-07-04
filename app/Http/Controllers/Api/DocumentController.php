@@ -80,7 +80,7 @@ class DocumentController extends Controller
     {
         $submittedAt = $document->submitted_at ?? $document->created_at;
         $groupCode = $document->group?->group_code ?? ($document->group_id ? (string) $document->group_id : null);
-        $cuatrimestre = $this->extractCuatrimestreFromGroupCode($groupCode);
+$cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFromGroupCode($groupCode);
         $tipo = $document->apartado_label
             ? strtolower(str_replace(' ', '-', $document->apartado_label))
             : ($document->form?->form_code ?? 'documento');
