@@ -92,7 +92,7 @@ class FormController extends Controller
         ->whereHas('accessRule.roles', function ($query) use ($userRoles) {
             $query->whereIn('code', $userRoles);
         })
-        ->orderBy('due_at', 'asc')
+        ->orderBy('forms.id', 'asc')
         ->get()
         ->map(function ($form) {
             return [

@@ -160,6 +160,10 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
             $query->where('status', $request->string('status'));
         }
 
+        if ($request->filled('apartado_label')) {
+            $query->whereRaw('LOWER(apartado_label) = LOWER(?)', [$request->string('apartado_label')]);
+        }
+
         if ($request->filled('cycle_id')) {
             $cycleId = $request->integer('cycle_id');
             $query->where(function ($cycleQuery) use ($cycleId) {
