@@ -87,10 +87,12 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
 
         $fileUrl = null;
         $downloadUrl = null;
+        $hasFile = false;
 
         if ($document->file_path) {
             $storedPath = $this->resolveDocumentStoragePath($document->file_path);
             if ($storedPath) {
+                $hasFile = true;
                 $fileUrl = Storage::disk('public')->url($storedPath);
                 $downloadUrl = '/documents/' . $document->id . '/file?download=1';
             }
@@ -117,6 +119,7 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
             'status' => $document->status,
             'observaciones' => $document->returned_comment,
             'returned_comment' => $document->returned_comment,
+            'has_file' => $hasFile,
             'fileUrl' => $fileUrl,
             'downloadUrl' => $downloadUrl,
             // Campos en inglés esperados por el frontend
@@ -247,6 +250,23 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
             return response()->json([
                 'message' => 'No hay ciclo disponible para registrar el documento. Define un ciclo activo o selecciona un grupo con ciclo.',
             ], 422);
+        }
+
+        // Verificar que el formulario esté abierto y que el rol del usuario tenga acceso
+        $form = \App\Models\Form::with('accessRule.roles')->find($data['form_id']);
+        if ($form) {
+            if ($form->accessRule?->due_at?->isPast()) {
+                return response()->json([
+                    'message' => 'El plazo para enviar este formulario ha vencido.',
+                ], 422);
+            }
+            $userRoles    = $request->user()->roles()->pluck('code')->toArray();
+            $allowedRoles = $form->accessRule?->roles->pluck('code')->all() ?? [];
+            if (!empty($allowedRoles) && empty(array_intersect($userRoles, $allowedRoles))) {
+                return response()->json([
+                    'message' => 'No tienes permiso para enviar este tipo de formulario.',
+                ], 403);
+            }
         }
 
         $file     = $request->file('file');
