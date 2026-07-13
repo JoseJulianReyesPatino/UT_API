@@ -314,8 +314,13 @@ class DocumentController extends Controller
     public function update(Request $request, Document $document): JsonResponse
     {
         $payload = $request->only([
-            'title', 'apartado_label', 'plan', 'carrera_label', 'materia', 'parcial', 'group_id', 'cycle_id'
+            'title', 'apartado_label', 'plan', 'carrera_label', 'materia', 'parcial', 'group_id', 'cycle_id', 'nota'
         ]);
+
+        if (array_key_exists('plan', $payload)) {
+            $normalized = str_replace('-', '_', (string) ($payload['plan'] ?? ''));
+            $payload['plan'] = in_array($normalized, ['nuevo_modelo', 'plan_normal']) ? $normalized : null;
+        }
 
         $resolvedGroupId = array_key_exists('group_id', $payload)
             ? (int) $payload['group_id']
@@ -410,7 +415,8 @@ class DocumentController extends Controller
         }
 
         return response()->file(Storage::disk('public')->path($storedPath), [
-            'Content-Type' => $document->mime_type ?? 'application/pdf',
+            'Content-Type'  => $document->mime_type ?? 'application/pdf',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
         ]);
     }
 
@@ -456,6 +462,61 @@ class DocumentController extends Controller
         $document->status = 'devuelto';
         $document->returned_at = now();
         $document->returned_comment = $data['notes'] ?? null;
+        $document->save();
+
+        return response()->json(['data' => $this->formatDocument($document->fresh())]);
+    }
+
+    public function resubmit(Request $request, Document $document): JsonResponse
+    {
+        if ($document->uploaded_by !== $request->user()?->id) {
+            return response()->json(['message' => 'No autorizado para reenviar este documento.'], 403);
+        }
+
+        if ($document->status !== 'devuelto') {
+            return response()->json(['message' => 'Solo se pueden reenviar documentos con estado devuelto.'], 422);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'max:10240', function ($attribute, $value, $fail) {
+                $ext        = strtolower($value->getClientOriginalExtension());
+                $mime       = strtolower($value->getMimeType() ?? '');
+                $clientMime = strtolower($value->getClientMimeType() ?? '');
+                $validMimes = ['application/pdf', 'application/x-pdf', 'application/acrobat', 'application/vnd.pdf', 'text/pdf'];
+                if ($ext !== 'pdf' && !in_array($mime, $validMimes) && !in_array($clientMime, $validMimes)) {
+                    $fail('El archivo debe ser un PDF.');
+                    return;
+                }
+                $handle = fopen($value->getPathname(), 'rb');
+                $header = fread($handle, 5);
+                fclose($handle);
+                if ($header !== '%PDF-') {
+                    $fail('El archivo no es un PDF válido. Asegúrate de subir el archivo correcto.');
+                }
+            }],
+        ]);
+
+        if ($document->file_path) {
+            $storedPath = $this->resolveDocumentStoragePath($document->file_path);
+            if ($storedPath && Storage::disk('public')->exists($storedPath)) {
+                Storage::disk('public')->delete($storedPath);
+            }
+        }
+
+        $file     = $request->file('file');
+        $ext      = strtolower($file->getClientOriginalExtension()) ?: 'pdf';
+        $safeName = 'doc_' . uniqid('', true) . '.' . $ext;
+        $subDir   = 'documents/' . now()->format('Y/m');
+        $path     = $file->storeAs($subDir, $safeName, 'public');
+
+        $newTitle = mb_substr(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME), 0, 180);
+
+        $document->title            = $newTitle ?: $document->title;
+        $document->file_path        = $path;
+        $document->mime_type        = $file->getMimeType();
+        $document->file_size_bytes  = $file->getSize();
+        $document->status           = 'reenviado';
+        $document->resubmitted_at   = now();
         $document->save();
 
         return response()->json(['data' => $this->formatDocument($document->fresh())]);

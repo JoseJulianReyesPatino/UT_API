@@ -98,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/documents/{document}/history', [DocumentController::class, 'history']);
     Route::patch('/documents/{document}/review', [DocumentController::class, 'review']);
     Route::patch('/documents/{document}/return', [DocumentController::class, 'returnDocument']);
+    Route::post('/documents/{document}/resubmit', [DocumentController::class, 'resubmit']);
 
     Route::get('/conversations', [MessageController::class, 'index']);
     Route::post('/conversations', [MessageController::class, 'storeConversation']);
