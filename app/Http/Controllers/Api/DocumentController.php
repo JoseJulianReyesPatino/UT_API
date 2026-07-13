@@ -80,7 +80,7 @@ class DocumentController extends Controller
     {
         $submittedAt = $document->submitted_at ?? $document->created_at;
         $groupCode = $document->group?->group_code ?? ($document->group_id ? (string) $document->group_id : null);
-$cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFromGroupCode($groupCode);
+        $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFromGroupCode($groupCode);
         $tipo = $document->apartado_label
             ? strtolower(str_replace(' ', '-', $document->apartado_label))
             : ($document->form?->form_code ?? 'documento');
@@ -103,6 +103,7 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
 
         return [
             'id' => $document->id,
+            'batch_id' => $document->batch_id,
             // Campos en español (compatibilidad con código existente)
             'nombre' => $document->title,
             'tipo' => $tipo,
@@ -221,6 +222,7 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
             'materia' => ['nullable', 'string', 'max:140'],
             'parcial' => ['nullable', 'string', 'max:40'],
             'group_id' => ['nullable', 'integer', 'exists:groups,id'],
+            'batch_id' => ['nullable', 'string', 'max:64'],
             'file' => ['required', 'file', 'max:10240', function ($attribute, $value, $fail) {
                 $ext        = strtolower($value->getClientOriginalExtension());
                 $mime       = strtolower($value->getMimeType() ?? '');
@@ -292,6 +294,7 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
             'status' => 'pendiente',
             'submitted_at' => now(),
             'nota' => $data['nota'] ?? null,
+            'batch_id' => $data['batch_id'] ?? null,
         ]);
 
         return response()->json(['data' => $document], 201);
@@ -337,15 +340,39 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
         return response()->json(['data' => $document->fresh()]);
     }
 
-    public function destroy(Document $document): JsonResponse
+    /**
+     * Eliminar un documento (con manejo de errores mejorado)
+     */
+    public function destroy(Request $request, Document $document): JsonResponse
     {
-        if ($document->file_path) {
-            Storage::disk('public')->delete($document->file_path);
+        try {
+            // Verificar permisos
+            if (!$this->canAccessDocument($request, $document)) {
+                return response()->json([
+                    'message' => 'No tienes permiso para eliminar este documento.'
+                ], 403);
+            }
+
+            // Eliminar el archivo físico si existe
+            if ($document->file_path) {
+                $storedPath = $this->resolveDocumentStoragePath($document->file_path);
+                if ($storedPath && Storage::disk('public')->exists($storedPath)) {
+                    Storage::disk('public')->delete($storedPath);
+                }
+            }
+
+            // Eliminar el registro de la base de datos
+            $document->delete();
+
+            return response()->json([
+                'message' => 'Documento eliminado correctamente',
+                'data' => ['id' => $document->id]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error al eliminar el documento: ' . $e->getMessage()
+            ], 500);
         }
-
-        $document->delete();
-
-        return response()->json(['message' => 'Documento eliminado']);
     }
 
     public function history(Document $document): JsonResponse
@@ -366,7 +393,7 @@ $cuatrimestre = $document->group?->cuatrimestre ?? $this->extractCuatrimestreFro
         return response()->json(['data' => $history]);
     }
 
-  public function file(Request $request, Document $document)
+    public function file(Request $request, Document $document)
     {
         if (!$this->canAccessDocument($request, $document)) {
             abort(403);
