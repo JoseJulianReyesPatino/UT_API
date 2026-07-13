@@ -51,6 +51,7 @@ class SupervisorPermissionController extends Controller
                 'user_id'   => $user->id,
                 'user_name' => $user->full_name,
                 'email'     => $user->email,
+                'avatar'    => $user->avatar_url ? $user->avatar : null,
                 'sections'  => $user->supervisorSectionPermission?->sections ?? [],
             ]);
 
