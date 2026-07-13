@@ -35,6 +35,7 @@ class Document extends Model
         'returned_comment',
         'resubmitted_at',
         'nota',
+        'batch_id',
     ];
 
     protected $casts = [
