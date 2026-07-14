@@ -223,7 +223,7 @@ class DocumentController extends Controller
             'parcial' => ['nullable', 'string', 'max:40'],
             'group_id' => ['nullable', 'integer', 'exists:groups,id'],
             'batch_id' => ['nullable', 'string', 'max:64'],
-            'file' => ['required', 'file', 'max:10240', function ($attribute, $value, $fail) {
+            'file' => ['required', 'file', 'max:15360', function ($attribute, $value, $fail) {
                 $ext        = strtolower($value->getClientOriginalExtension());
                 $mime       = strtolower($value->getMimeType() ?? '');
                 $clientMime = strtolower($value->getClientMimeType() ?? '');
@@ -313,6 +313,22 @@ class DocumentController extends Controller
 
     public function update(Request $request, Document $document): JsonResponse
     {
+        if ($document->uploaded_by !== $request->user()?->id && !$this->isAdmin($request)) {
+            return response()->json(['message' => 'No tienes permiso para editar este documento.'], 403);
+        }
+
+        $request->validate([
+            'title'         => ['nullable', 'string', 'max:255'],
+            'apartado_label'=> ['nullable', 'string', 'max:100'],
+            'plan'          => ['nullable', 'string', 'in:nuevo_modelo,plan_normal,nuevo-modelo,plan-normal'],
+            'carrera_label' => ['nullable', 'string', 'max:255'],
+            'materia'       => ['nullable', 'string', 'max:255'],
+            'parcial'       => ['nullable', 'string', 'max:50'],
+            'group_id'      => ['nullable', 'integer', 'exists:groups,id'],
+            'cycle_id'      => ['nullable', 'integer', 'exists:cycles,id'],
+            'nota'          => ['nullable', 'string', 'max:2000'],
+        ]);
+
         $payload = $request->only([
             'title', 'apartado_label', 'plan', 'carrera_label', 'materia', 'parcial', 'group_id', 'cycle_id', 'nota'
         ]);
@@ -380,8 +396,12 @@ class DocumentController extends Controller
         }
     }
 
-    public function history(Document $document): JsonResponse
+    public function history(Request $request, Document $document): JsonResponse
     {
+        if (!$this->canAccessDocument($request, $document)) {
+            return response()->json(['message' => 'No tienes permiso para ver el historial de este documento.'], 403);
+        }
+
         $history = \App\Models\DocumentStatusHistory::where('document_id', $document->id)
             ->with('user')
             ->orderBy('created_at', 'desc')
@@ -441,6 +461,10 @@ class DocumentController extends Controller
 
     public function review(Request $request, Document $document): JsonResponse
     {
+        if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
+            return response()->json(['message' => 'Solo administradores o supervisores pueden revisar documentos.'], 403);
+        }
+
         $data = $request->validate([
             'status' => ['required', 'in:revisado,devuelto'],
             'notes' => ['nullable', 'string'],
@@ -455,6 +479,10 @@ class DocumentController extends Controller
 
     public function returnDocument(Request $request, Document $document): JsonResponse
     {
+        if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
+            return response()->json(['message' => 'Solo administradores o supervisores pueden devolver documentos.'], 403);
+        }
+
         $data = $request->validate([
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
@@ -478,7 +506,7 @@ class DocumentController extends Controller
         }
 
         $request->validate([
-            'file' => ['required', 'file', 'max:10240', function ($attribute, $value, $fail) {
+            'file' => ['required', 'file', 'max:15360', function ($attribute, $value, $fail) {
                 $ext        = strtolower($value->getClientOriginalExtension());
                 $mime       = strtolower($value->getMimeType() ?? '');
                 $clientMime = strtolower($value->getClientMimeType() ?? '');
@@ -496,18 +524,19 @@ class DocumentController extends Controller
             }],
         ]);
 
-        if ($document->file_path) {
-            $storedPath = $this->resolveDocumentStoragePath($document->file_path);
-            if ($storedPath && Storage::disk('public')->exists($storedPath)) {
-                Storage::disk('public')->delete($storedPath);
-            }
-        }
-
         $file     = $request->file('file');
         $ext      = strtolower($file->getClientOriginalExtension()) ?: 'pdf';
         $safeName = 'doc_' . uniqid('', true) . '.' . $ext;
         $subDir   = 'documents/' . now()->format('Y/m');
         $path     = $file->storeAs($subDir, $safeName, 'public');
+
+        if (!$path) {
+            return response()->json(['message' => 'No se pudo guardar el archivo. Intenta de nuevo.'], 500);
+        }
+
+        $oldPath = $document->file_path
+            ? $this->resolveDocumentStoragePath($document->file_path)
+            : null;
 
         $newTitle = mb_substr(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME), 0, 180);
 
@@ -518,6 +547,10 @@ class DocumentController extends Controller
         $document->status           = 'reenviado';
         $document->resubmitted_at   = now();
         $document->save();
+
+        if ($oldPath && Storage::disk('public')->exists($oldPath)) {
+            Storage::disk('public')->delete($oldPath);
+        }
 
         return response()->json(['data' => $this->formatDocument($document->fresh())]);
     }
