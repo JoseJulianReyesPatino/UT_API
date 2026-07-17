@@ -57,7 +57,7 @@ class GroupController extends Controller
         $data = $request->validate([
             'careerCode' => ['required', 'string', 'max:32'],
             'plan' => ['required', Rule::in(['nuevo-modelo', 'plan-normal'])],
-            'cuatrimestre' => ['required', 'integer', 'min:1', 'max:12'],
+            'cuatrimestre' => ['required', 'integer', 'min:0', 'max:12'],
             'groupNumber' => ['required', 'integer', 'min:1', 'max:99'],
         ]);
 
@@ -120,7 +120,7 @@ class GroupController extends Controller
         $data = $request->validate([
             'careerCode' => ['sometimes', 'string', 'max:32'],
             'plan' => ['sometimes', Rule::in(['nuevo-modelo', 'plan-normal'])],
-            'cuatrimestre' => ['sometimes', 'integer', 'min:1', 'max:12'],
+            'cuatrimestre' => ['sometimes', 'integer', 'min:0', 'max:12'],
             'groupNumber' => ['sometimes', 'integer', 'min:1', 'max:99'],
         ]);
 
@@ -159,7 +159,7 @@ class GroupController extends Controller
     {
         $level = null;
         if ($plan === 'nuevo_modelo') {
-            $level = ($cuatrimestre > 0 && $cuatrimestre <= 6) ? 'TSU' : 'Ingenieria';
+            $level = ($cuatrimestre >= 0 && $cuatrimestre <= 6) ? 'TSU' : 'Ingenieria';
         } elseif ($plan === 'plan_normal') {
             $level = 'Ingenieria';
         }

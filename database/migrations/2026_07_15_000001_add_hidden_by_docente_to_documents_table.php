@@ -8,17 +8,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasColumn('documents', 'batch_id')) {
-            Schema::table('documents', function (Blueprint $table) {
-                $table->string('batch_id', 64)->nullable()->after('id')->index();
-            });
-        }
+        Schema::table('documents', function (Blueprint $table) {
+            $table->boolean('hidden_by_docente')->default(false)->after('nota');
+        });
     }
 
     public function down(): void
     {
         Schema::table('documents', function (Blueprint $table) {
-            $table->dropColumn('batch_id');
+            $table->dropColumn('hidden_by_docente');
         });
     }
 };

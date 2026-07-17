@@ -451,7 +451,7 @@ class MessageController extends Controller
             'avatar_url' => $this->getUserAvatarUrl($otherParticipant),
             'avatar' => $this->getUserAvatarUrl($otherParticipant),
             'avatar_fallback' => $this->getUserAvatarFallback($otherParticipant),
-            'status' => 'offline',
+            'status' => $this->calculateUserStatus($otherParticipant),
             'participants' => $conversation->participants->map(function (User $participant) {
                 return [
                     'id' => $participant->id,
@@ -463,6 +463,17 @@ class MessageController extends Controller
             })->values(),
             'lastMessageAt' => $latestMessage?->created_at?->format('Y-m-d H:i:s') ?? $conversation->updated_at?->format('Y-m-d H:i:s') ?? '',
         ];
+    }
+
+    private function calculateUserStatus(?User $user): string
+    {
+        if (!$user || !$user->last_active_at) {
+            return 'offline';
+        }
+        $minutes = now()->diffInMinutes($user->last_active_at);
+        if ($minutes < 5)  return 'online';
+        if ($minutes < 30) return 'away';
+        return 'offline';
     }
 
     private function userHasRole(User $user, string $roleCode): bool

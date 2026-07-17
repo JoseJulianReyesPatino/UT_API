@@ -36,6 +36,7 @@ class Document extends Model
         'resubmitted_at',
         'nota',
         'batch_id',
+        'hidden_by_docente',
     ];
 
     protected $casts = [
@@ -43,6 +44,7 @@ class Document extends Model
         'reviewed_at' => 'datetime',
         'returned_at' => 'datetime',
         'resubmitted_at' => 'datetime',
+        'hidden_by_docente' => 'boolean',
     ];
 
     public function form()

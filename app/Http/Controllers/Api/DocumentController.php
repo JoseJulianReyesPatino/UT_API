@@ -204,6 +204,11 @@ class DocumentController extends Controller
             });
         }
 
+        // Los docentes solo ven sus documentos no ocultos, a menos que pidan incluir ocultos explícitamente
+        if (!$canSeeAll && !$request->boolean('include_hidden')) {
+            $query->where('hidden_by_docente', false);
+        }
+
         $documents = $query->orderByDesc('submitted_at')->paginate($request->integer('per_page', 20));
         $documents->setCollection($documents->getCollection()->map(fn (Document $document) => $this->formatDocument($document)));
 
@@ -359,6 +364,20 @@ class DocumentController extends Controller
         $document->fill($payload)->save();
 
         return response()->json(['data' => $document->fresh()]);
+    }
+
+    /**
+     * Ocultar un documento del historial del docente sin eliminarlo
+     */
+    public function hide(Request $request, Document $document): JsonResponse
+    {
+        if ($document->uploaded_by !== $request->user()?->id) {
+            return response()->json(['message' => 'No tienes permiso para ocultar este documento.'], 403);
+        }
+
+        $document->update(['hidden_by_docente' => true]);
+
+        return response()->json(['message' => 'Documento ocultado del historial correctamente.']);
     }
 
     /**

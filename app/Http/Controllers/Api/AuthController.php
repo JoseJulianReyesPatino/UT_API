@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PasswordResetCode;
 use App\Models\PasswordResetToken;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -199,23 +201,25 @@ class AuthController extends Controller
 
         $user = User::query()->where('email', $data['email'])->first();
 
+        // Siempre devolver el mismo mensaje por seguridad (no revelar si el correo existe)
         if (!$user) {
-            return response()->json(['message' => 'Si el correo existe, se enviara un enlace de recuperacion.']);
+            return response()->json(['message' => 'Si el correo está registrado, recibirás un código en tu bandeja de entrada.']);
         }
 
-        $plainToken = Str::random(64);
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
         PasswordResetToken::query()->updateOrCreate(
             ['email' => $user->email],
             [
-                'token_hash' => Hash::make($plainToken),
+                'token_hash' => Hash::make($code),
                 'expires_at' => now()->addMinutes(30),
             ]
         );
 
-        return response()->json([
-            'message' => 'Token de recuperacion generado.',
-            'reset_token' => $plainToken,
-        ]);
+        $userName = $user->full_name ?? $user->name ?? 'Usuario';
+        Mail::to($user->email)->send(new PasswordResetCode($code, $userName));
+
+        return response()->json(['message' => 'Si el correo está registrado, recibirás un código en tu bandeja de entrada.']);
     }
 
     public function resetPassword(Request $request): JsonResponse
@@ -228,9 +232,21 @@ class AuthController extends Controller
 
         $record = PasswordResetToken::query()->where('email', $data['email'])->first();
 
-        if (!$record || !$record->expires_at || $record->expires_at->isPast() || !Hash::check($data['token'], $record->token_hash)) {
+        if (!$record) {
             throw ValidationException::withMessages([
-                'token' => ['El token es invalido o expiro.'],
+                'token' => ['No hay una solicitud de código activa para este correo. Solicita uno nuevo.'],
+            ]);
+        }
+
+        if (!$record->expires_at || $record->expires_at->isPast()) {
+            throw ValidationException::withMessages([
+                'token' => ['El código ha expirado. Usa el botón "Reenviar código" para obtener uno nuevo.'],
+            ]);
+        }
+
+        if (!Hash::check($data['token'], $record->token_hash)) {
+            throw ValidationException::withMessages([
+                'token' => ['El código ingresado es incorrecto. Verifica tu correo e inténtalo de nuevo.'],
             ]);
         }
 
@@ -241,6 +257,6 @@ class AuthController extends Controller
 
         $record->delete();
 
-        return response()->json(['message' => 'Contrasena actualizada correctamente.']);
+        return response()->json(['message' => '¡Contraseña actualizada correctamente! Ya puedes iniciar sesión.']);
     }
 }

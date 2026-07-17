@@ -63,7 +63,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', \App\Http\Middleware\UpdateLastActive::class])->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::get('/profile/stats', [AuthController::class, 'profileStats']);
         Route::match(['PATCH', 'POST'], '/profile', [AuthController::class, 'updateProfile']);
@@ -79,7 +79,7 @@ Route::get('/groups/{group}', [GroupController::class, 'show']);
 // Public: serve active calendar PDF (opened via window.open with no auth token)
 Route::get('/calendar/file', [CalendarController::class, 'file']);
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', \App\Http\Middleware\UpdateLastActive::class])->group(function () {
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
     Route::get('/calendar', [CalendarController::class, 'index']);
@@ -96,6 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/documents/{document}/file', [DocumentController::class, 'file'])->name('documents.file');
 
     Route::get('/documents/{document}/history', [DocumentController::class, 'history']);
+    Route::patch('/documents/{document}/hide', [DocumentController::class, 'hide']);
     Route::patch('/documents/{document}/review', [DocumentController::class, 'review']);
     Route::patch('/documents/{document}/return', [DocumentController::class, 'returnDocument']);
     Route::post('/documents/{document}/resubmit', [DocumentController::class, 'resubmit']);
