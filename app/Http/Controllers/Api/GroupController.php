@@ -31,6 +31,10 @@ class GroupController extends Controller
             $query->where('groups.cycle_id', '=', (int) $request->cycle_id);
         }
 
+        if ($request->boolean('active_only')) {
+            $query->where('groups.is_active', true);
+        }
+
         $groups = $query->orderBy('groups.group_number')->get();
 
         $data = $groups->map(function (Group $group) {
@@ -46,6 +50,7 @@ class GroupController extends Controller
                 'plan' => $this->planFromCareerId($group->career_id),
                 'groupNumber' => $group->group_number,
                 'name' => $group->group_code,
+                'is_active' => (bool) ($group->is_active ?? true),
             ];
         });
 
@@ -122,7 +127,20 @@ class GroupController extends Controller
             'plan' => ['sometimes', Rule::in(['nuevo-modelo', 'plan-normal'])],
             'cuatrimestre' => ['sometimes', 'integer', 'min:0', 'max:12'],
             'groupNumber' => ['sometimes', 'integer', 'min:1', 'max:99'],
+            'is_active' => ['sometimes', 'boolean'],
         ]);
+
+        if (array_key_exists('is_active', $data)) {
+            $group->is_active = (bool) $data['is_active'];
+            $group->save();
+            return response()->json(['data' => array_merge($group->fresh()->toArray(), [
+                'careerCode' => $group->career?->code ?? '',
+                'plan' => $this->planFromCareerId($group->career_id),
+                'groupNumber' => $group->group_number,
+                'name' => $group->group_code,
+                'is_active' => (bool) $group->is_active,
+            ])]);
+        }
 
         if (isset($data['careerCode']) || isset($data['plan']) || isset($data['cuatrimestre'])) {
             $careerCode = strtoupper($data['careerCode'] ?? $group->career->code ?? '');

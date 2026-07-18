@@ -98,7 +98,7 @@ class DocumentController extends Controller
             }
         }
 
-        $docenteName = $document->uploader?->full_name ?? $document->uploader?->name ?? 'Sin docente';
+        $docenteName = $document->uploader?->full_name ?: $document->uploader?->name ?: 'Sin nombre';
         $formTitle = $document->form?->title ?? $document->apartado_label ?? 'Documento';
 
         return [
@@ -493,7 +493,7 @@ class DocumentController extends Controller
         $document->reviewed_at = now();
         $document->save();
 
-        return response()->json(['data' => $document->fresh()]);
+        return response()->json(['data' => $this->formatDocument($document->fresh()->load(['form', 'group', 'uploader', 'cycle']))]);
     }
 
     public function returnDocument(Request $request, Document $document): JsonResponse

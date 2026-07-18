@@ -13,6 +13,11 @@ class Group extends Model
         'cuatrimestre',
         'group_number',
         'group_code',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
     ];
 
     public function career()
