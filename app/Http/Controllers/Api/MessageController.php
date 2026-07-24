@@ -15,6 +15,42 @@ use Illuminate\Support\Str;
 
 class MessageController extends Controller
 {
+    public function peer(Request $request): JsonResponse
+    {
+        $currentUser = $request->user();
+        $currentUser->loadMissing('roles');
+
+        $isTeacher = $this->isTeacherRole($currentUser);
+        if (!$isTeacher) {
+            return response()->json(['data' => null]);
+        }
+
+        $admin = User::query()
+            ->with('roles')
+            ->where('is_active', true)
+            ->whereHas('roles', function ($query) {
+                $query->where('code', 'administrador');
+            })
+            ->orderBy('id')
+            ->first();
+
+        if (!$admin) {
+            return response()->json(['data' => null]);
+        }
+
+        return response()->json([
+            'data' => [
+                'id' => $admin->id,
+                'full_name' => $admin->full_name,
+                'email' => $admin->email,
+                'avatar_url' => $this->getUserAvatarUrl($admin),
+                'avatar_fallback' => $this->getUserAvatarFallback($admin),
+                'role' => 'administrador',
+                'roles' => $admin->roles->map(fn ($role) => ['code' => (string) $role->code, 'name' => (string) $role->name])->values(),
+            ],
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $currentUser = $request->user();

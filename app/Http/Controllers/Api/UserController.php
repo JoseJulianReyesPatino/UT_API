@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 class UserController extends Controller
 {
@@ -16,9 +17,15 @@ class UserController extends Controller
         // Base64 data URIs are returned as-is; all other non-null values use the stable API route
         $avatarUrl = null;
         if ($user->avatar_url) {
-            $avatarUrl = str_starts_with($user->avatar_url, 'data:')
-                ? $user->avatar_url
-                : '/api/users/' . $user->id . '/avatar';
+            if (str_starts_with($user->avatar_url, 'data:')) {
+                $avatarUrl = $user->avatar_url;
+            } else {
+                // Build origin from current request, check for ngrok X-Forwarded-Proto header
+                $scheme = request()->headers->get('X-Forwarded-Proto') ?: request()->getScheme();
+                $host = request()->getHost();
+                $origin = $scheme . '://' . $host;
+                $avatarUrl = $origin . '/api/users/' . $user->id . '/avatar';
+            }
         }
 
         return [
@@ -119,5 +126,58 @@ class UserController extends Controller
         $user->update(['is_active' => false]);
 
         return response()->json(['message' => 'Usuario desactivado']);
+    }
+
+    /**
+     * Serve the avatar image for a user.
+     */
+    public function avatar(Request $request, int $userId): mixed
+    {
+        $user = User::findOrFail($userId);
+        $url = $user->avatar_url;
+
+        if (!$url) {
+            return response()->json(['message' => 'Sin avatar'], 404);
+        }
+
+        // data: URI — cannot stream, return 404 so frontend falls back to initials
+        if (str_starts_with($url, 'data:')) {
+            return response()->json(['message' => 'Avatar inline no streamable'], 404);
+        }
+
+        // Full external / ngrok / http URL — redirect so browser fetches directly
+        if (str_starts_with($url, 'http')) {
+            return redirect($url);
+        }
+
+        // Resolve storage path - url should be like /storage/avatars/avatar_1_xxx.png
+        if (str_starts_with($url, '/storage/')) {
+            $storagePath = substr($url, strlen('/storage/'));
+        } else {
+            $storagePath = ltrim($url, '/');
+        }
+
+        // Check if file exists in storage
+        if (!Storage::disk('public')->exists($storagePath)) {
+            // Try legacy path
+            $legacyPath = public_path('uploads/avatars/' . basename($url));
+            if (file_exists($legacyPath)) {
+                $mime = mime_content_type($legacyPath) ?: 'image/png';
+                return response()->file($legacyPath, [
+                    'Content-Type'  => $mime,
+                    'Cache-Control' => 'public, max-age=3600',
+                ]);
+            }
+            return response()->json(['message' => 'Avatar file not found'], 404);
+        }
+
+        // Serve from Laravel Storage
+        $fullPath = Storage::disk('public')->path($storagePath);
+        $mime = mime_content_type($fullPath) ?: 'image/png';
+
+        return response()->file($fullPath, [
+            'Content-Type'  => $mime,
+            'Cache-Control' => 'public, max-age=3600',
+        ]);
     }
 }

@@ -33,7 +33,7 @@
               <p style="margin:0 0 32px;font-size:14px;color:#64748b;line-height:1.6;">
                 Recibimos una solicitud para restablecer la contraseña de tu cuenta.
                 Usa el siguiente código de 6 dígitos para continuar. Este código
-                expira en <strong style="color:#1e293b;">15 minutos</strong>.
+                expira en <strong style="color:#1e293b;">30 minutos</strong>.
               </p>
 
               {{-- Código --}}

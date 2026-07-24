@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Mail\PasswordResetCode;
 use App\Models\PasswordResetToken;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -16,30 +15,71 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    /**
+     * Deletes the physical avatar file for a given avatar_url value.
+     * Handles /storage/... paths and legacy /uploads/... paths.
+     */
+    private function deleteStoredAvatar(?string $avatarUrl): void
+    {
+        if (!$avatarUrl) {
+            return;
+        }
+
+        // Ignore external URLs and data URIs
+        if (str_starts_with($avatarUrl, 'http') || str_starts_with($avatarUrl, 'data:')) {
+            return;
+        }
+
+        // Resolve relative storage path
+        $storagePath = $avatarUrl;
+        if (str_starts_with($storagePath, '/storage/')) {
+            $storagePath = substr($storagePath, strlen('/storage/'));
+        } elseif (str_starts_with($storagePath, '/uploads/')) {
+            // Legacy uploads path — try public disk path
+            $legacyFull = public_path(ltrim($storagePath, '/'));
+            if (file_exists($legacyFull)) {
+                @unlink($legacyFull);
+            }
+            return;
+        } else {
+            $storagePath = ltrim($storagePath, '/');
+        }
+
+        if ($storagePath && Storage::disk('public')->exists($storagePath)) {
+            Storage::disk('public')->delete($storagePath);
+        }
+    }
+
     private function formatUser(User $user): array
     {
         $parts = preg_split('/\s+/', trim($user->full_name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $firstNames = count($parts) <= 1 ? trim($user->full_name) : implode(' ', array_slice($parts, 0, -1));
         $lastNames = count($parts) <= 1 ? '' : (string) array_slice($parts, -1)[0];
 
-        // Base64 data URIs are returned as-is; all other non-null values use the stable API route
-        $avatarUrl = null;
-        if ($user->avatar_url) {
-            $avatarUrl = str_starts_with($user->avatar_url, 'data:')
-                ? $user->avatar_url
-                : '/api/users/' . $user->id . '/avatar';
+        // Asegurar que avatar_url sea una URL completa o null
+        $avatarUrl = $user->avatar_url;
+        if ($avatarUrl && !str_starts_with($avatarUrl, 'http')) {
+            // Build origin from current request, check for ngrok X-Forwarded-Proto header
+            $scheme = request()->headers->get('X-Forwarded-Proto') ?: request()->getScheme();
+            $host = request()->getHost();
+            $origin = $scheme . '://' . $host;
+
+            if (str_starts_with($avatarUrl, '/storage/')) {
+                $avatarUrl = $origin . $avatarUrl;
+            } elseif (str_starts_with($avatarUrl, '/api/')) {
+                $avatarUrl = $origin . $avatarUrl;
+            } elseif (str_starts_with($avatarUrl, '/uploads/')) {
+                // Legacy uploads path
+                $avatarUrl = $origin . str_replace('/uploads/', '/storage/', $avatarUrl);
+            } elseif (!str_starts_with($avatarUrl, '/')) {
+                $avatarUrl = $origin . '/storage/' . $avatarUrl;
+            } else {
+                // Starts with / but no /storage/ or /api/
+                $avatarUrl = $origin . $avatarUrl;
+            }
         }
 
-        $roles = $user->roles()->pluck('code')->values();
-        $isSupervisor = $roles->contains('supervisor');
-
-        $supervisorSections = null;
-        if ($isSupervisor) {
-            $perm = $user->supervisorSectionPermission()->first();
-            $supervisorSections = $perm?->sections ?? [];
-        }
-
-        $payload = [
+        return [
             'id' => $user->id,
             'full_name' => $user->full_name,
             'first_names' => $firstNames,
@@ -50,14 +90,9 @@ class AuthController extends Controller
             'avatar_url' => $avatarUrl,
             'is_active' => $user->is_active,
             'created_at' => $user->created_at?->toIso8601String(),
-            'roles' => $roles,
+            'roles' => $user->roles()->pluck('code')->values(),
+            'supervisor_sections' => $user->supervisorSectionPermission?->sections ?? null,
         ];
-
-        if ($supervisorSections !== null) {
-            $payload['supervisor_sections'] = $supervisorSections;
-        }
-
-        return $payload;
     }
 
     public function login(Request $request): JsonResponse
@@ -109,61 +144,42 @@ class AuthController extends Controller
     }
 
     public function updateProfile(Request $request): JsonResponse
-{
-    $user = $request->user();
+    {
+        $user = $request->user();
 
-    $data = $request->validate([
-        'full_name' => ['sometimes', 'string', 'max:150'],
-        'phone' => ['nullable', 'digits:10'],
-        'area' => ['nullable', 'string', 'max:120'],
-        'avatar' => ['nullable', 'image', 'max:4096'],
-        'avatar_url' => ['nullable', 'string', 'max:255'],
-        'remove_avatar' => ['sometimes', 'boolean'],
-    ]);
+        $data = $request->validate([
+            'full_name' => ['sometimes', 'string', 'max:150'],
+            'phone' => ['nullable', 'digits:10'],
+            'area' => ['nullable', 'string', 'max:120'],
+            'avatar' => ['nullable', 'image', 'max:4096'],
+            'avatar_url' => ['nullable', 'string', 'max:255'],
+        ]);
 
-    if ($request->boolean('remove_avatar')) {
-        $avatarDir = public_path('uploads/avatars');
-        foreach (glob($avatarDir . '/avatar_' . $user->id . '_*') ?: [] as $old) {
-            @unlink($old);
+        $removingAvatar = $request->has('avatar_url') && is_null($request->input('avatar_url'));
+
+        if ($request->hasFile('avatar')) {
+            // Eliminar avatar anterior si existe
+            $this->deleteStoredAvatar($user->avatar_url);
+
+            // Guardar nuevo avatar
+            $path = $request->file('avatar')->store('avatars', 'public');
+            $data['avatar_url'] = env('APP_URL') . '/storage/' . $path;
+        } elseif ($removingAvatar) {
+            // Quitar foto de perfil: eliminar archivo físico
+            $this->deleteStoredAvatar($user->avatar_url);
+            $data['avatar_url'] = null;
         }
-        foreach (glob(storage_path('app/public/avatars/avatar_' . $user->id . '_*')) ?: [] as $old) {
-            @unlink($old);
-        }
 
-        $data['avatar_url'] = null;
+        $user->fill([
+            'full_name' => $data['full_name'] ?? $user->full_name,
+            'phone' => array_key_exists('phone', $data) ? $data['phone'] : $user->phone,
+            'area' => array_key_exists('area', $data) ? $data['area'] : $user->area,
+            'avatar_url' => array_key_exists('avatar_url', $data) ? $data['avatar_url'] : $user->avatar_url,
+        ])->save();
+
+        return response()->json(['user' => $this->formatUser($user->fresh())]);
     }
 
-    if ($request->hasFile('avatar')) {
-        $avatarDir = public_path('uploads/avatars');
-        if (!is_dir($avatarDir)) {
-            mkdir($avatarDir, 0755, true);
-        }
-
-        // Delete all previous avatar files for this user
-        foreach (glob($avatarDir . '/avatar_' . $user->id . '_*') ?: [] as $old) {
-            @unlink($old);
-        }
-        // Also clean up any files stored in the old Laravel disk location
-        foreach (glob(storage_path('app/public/avatars/avatar_' . $user->id . '_*')) ?: [] as $old) {
-            @unlink($old);
-        }
-
-        $ext = $request->file('avatar')->getClientOriginalExtension() ?: 'png';
-        $storedName = 'avatar_' . $user->id . '_' . uniqid() . '.' . $ext;
-        $request->file('avatar')->move($avatarDir, $storedName);
-
-        $data['avatar_url'] = '/api/users/' . $user->id . '/avatar';
-    }
-
-    $user->fill([
-        'full_name' => $data['full_name'] ?? $user->full_name,
-        'phone' => array_key_exists('phone', $data) ? $data['phone'] : $user->phone,
-        'area' => array_key_exists('area', $data) ? $data['area'] : $user->area,
-        'avatar_url' => array_key_exists('avatar_url', $data) ? $data['avatar_url'] : $user->avatar_url,
-    ])->save();
-
-    return response()->json(['user' => $this->formatUser($user->fresh())]);
-}
     public function updatePassword(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -201,25 +217,23 @@ class AuthController extends Controller
 
         $user = User::query()->where('email', $data['email'])->first();
 
-        // Siempre devolver el mismo mensaje por seguridad (no revelar si el correo existe)
         if (!$user) {
-            return response()->json(['message' => 'Si el correo está registrado, recibirás un código en tu bandeja de entrada.']);
+            return response()->json(['message' => 'Si el correo existe, se enviara un enlace de recuperacion.']);
         }
 
-        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
+        $plainToken = Str::random(64);
         PasswordResetToken::query()->updateOrCreate(
             ['email' => $user->email],
             [
-                'token_hash' => Hash::make($code),
+                'token_hash' => Hash::make($plainToken),
                 'expires_at' => now()->addMinutes(30),
             ]
         );
 
-        $userName = $user->full_name ?? $user->name ?? 'Usuario';
-        Mail::to($user->email)->send(new PasswordResetCode($code, $userName));
-
-        return response()->json(['message' => 'Si el correo está registrado, recibirás un código en tu bandeja de entrada.']);
+        // Avoid revealing whether email exists in system for security
+        return response()->json([
+            'message' => 'Si el correo existe, se enviaron instrucciones para recuperar la contraseña.',
+        ]);
     }
 
     public function resetPassword(Request $request): JsonResponse
@@ -232,21 +246,9 @@ class AuthController extends Controller
 
         $record = PasswordResetToken::query()->where('email', $data['email'])->first();
 
-        if (!$record) {
+        if (!$record || !$record->expires_at || $record->expires_at->isPast() || !Hash::check($data['token'], $record->token_hash)) {
             throw ValidationException::withMessages([
-                'token' => ['No hay una solicitud de código activa para este correo. Solicita uno nuevo.'],
-            ]);
-        }
-
-        if (!$record->expires_at || $record->expires_at->isPast()) {
-            throw ValidationException::withMessages([
-                'token' => ['El código ha expirado. Usa el botón "Reenviar código" para obtener uno nuevo.'],
-            ]);
-        }
-
-        if (!Hash::check($data['token'], $record->token_hash)) {
-            throw ValidationException::withMessages([
-                'token' => ['El código ingresado es incorrecto. Verifica tu correo e inténtalo de nuevo.'],
+                'token' => ['El token es invalido o expiro.'],
             ]);
         }
 
@@ -257,6 +259,6 @@ class AuthController extends Controller
 
         $record->delete();
 
-        return response()->json(['message' => '¡Contraseña actualizada correctamente! Ya puedes iniciar sesión.']);
+        return response()->json(['message' => 'Contrasena actualizada correctamente.']);
     }
 }
