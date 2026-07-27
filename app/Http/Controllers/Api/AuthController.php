@@ -180,6 +180,21 @@ class AuthController extends Controller
         return response()->json(['user' => $this->formatUser($user->fresh())]);
     }
 
+    public function verifyCurrentPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'password' => ['required', 'string'],
+        ]);
+
+        if (!Hash::check($data['password'], $request->user()->password_hash)) {
+            throw ValidationException::withMessages([
+                'password' => ['La contraseña actual no es correcta.'],
+            ]);
+        }
+
+        return response()->json(['valid' => true]);
+    }
+
     public function updatePassword(Request $request): JsonResponse
     {
         $data = $request->validate([
