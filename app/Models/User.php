@@ -22,6 +22,7 @@ class User extends Authenticatable
         'avatar_url',
         'is_active',
         'last_active_at',
+        'preferences',
     ];
 
     protected $hidden = [
@@ -32,6 +33,7 @@ class User extends Authenticatable
     protected $casts = [
         'is_active'      => 'boolean',
         'last_active_at' => 'datetime',
+        'preferences'    => 'array',
     ];
 
     protected $appends = ['avatar'];

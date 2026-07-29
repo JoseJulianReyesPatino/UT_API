@@ -217,6 +217,29 @@ class AuthController extends Controller
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     }
 
+    public function getPreferences(Request $request): JsonResponse
+    {
+        return response()->json([
+            'preferences' => $request->user()->preferences ?? (object)[],
+        ]);
+    }
+
+    public function updatePreferences(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $incoming = $request->validate([
+            'bgKey'          => ['sometimes', 'string', 'max:50'],
+            'bgOverlay'      => ['sometimes', 'integer', 'min:0', 'max:80'],
+            'containerAlpha' => ['sometimes', 'integer', 'min:0', 'max:100'],
+            'containerBlur'  => ['sometimes', 'integer', 'min:0', 'max:20'],
+        ]);
+
+        $user->preferences = array_merge($user->preferences ?? [], $incoming);
+        $user->save();
+
+        return response()->json(['preferences' => $user->preferences]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()?->delete();

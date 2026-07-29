@@ -24,6 +24,8 @@ Route::prefix('auth')->group(function () {
         Route::post('/profile', [AuthController::class, 'updateProfile']);
         Route::post('/verify-password', [AuthController::class, 'verifyCurrentPassword']);
         Route::patch('/password', [AuthController::class, 'updatePassword']);
+        Route::get('/preferences', [AuthController::class, 'getPreferences']);
+        Route::patch('/preferences', [AuthController::class, 'updatePreferences']);
         Route::post('/logout', [AuthController::class, 'logout']);
     });
 });
