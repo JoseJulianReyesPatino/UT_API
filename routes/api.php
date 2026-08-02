@@ -26,6 +26,9 @@ Route::prefix('auth')->group(function () {
         Route::patch('/password', [AuthController::class, 'updatePassword']);
         Route::get('/preferences', [AuthController::class, 'getPreferences']);
         Route::patch('/preferences', [AuthController::class, 'updatePreferences']);
+        Route::get('/preferences/background-image', [AuthController::class, 'getBackgroundImage']);
+        Route::post('/preferences/background', [AuthController::class, 'uploadBackground']);
+        Route::delete('/preferences/background', [AuthController::class, 'deleteBackground']);
         Route::post('/logout', [AuthController::class, 'logout']);
     });
 });
@@ -70,6 +73,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware('role:administrador')->group(function () {
         Route::apiResource('cycles', CycleController::class);
         Route::apiResource('users', UserController::class);
+        Route::delete('users/{user}/force-delete', [UserController::class, 'forceDestroy']);
         Route::apiResource('groups', GroupController::class)->except(['index', 'show']);
         Route::apiResource('forms', FormController::class)->only(['update']);
         Route::get('/supervisor-permissions', [SupervisorPermissionController::class, 'index']);

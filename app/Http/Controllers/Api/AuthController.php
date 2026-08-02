@@ -219,8 +219,19 @@ class AuthController extends Controller
 
     public function getPreferences(Request $request): JsonResponse
     {
+        $prefs = $request->user()->preferences ?? [];
+
+        // Normalizar bgCustomUrl: si tiene host antiguo (localhost u otro), extraer solo la ruta relativa.
+        // El frontend usa resolveApiAssetUrl para construir la URL final con su apiOrigin correcto.
+        if (is_array($prefs) && !empty($prefs['bgCustomUrl'])) {
+            $url = $prefs['bgCustomUrl'];
+            if (!str_starts_with($url, '/storage/') && preg_match('/\/storage\/(backgrounds\/.+)/', $url, $m)) {
+                $prefs['bgCustomUrl'] = '/storage/' . $m[1];
+            }
+        }
+
         return response()->json([
-            'preferences' => $request->user()->preferences ?? (object)[],
+            'preferences' => empty($prefs) ? (object)[] : $prefs,
         ]);
     }
 
@@ -232,12 +243,95 @@ class AuthController extends Controller
             'bgOverlay'      => ['sometimes', 'integer', 'min:0', 'max:80'],
             'containerAlpha' => ['sometimes', 'integer', 'min:0', 'max:100'],
             'containerBlur'  => ['sometimes', 'integer', 'min:0', 'max:20'],
+            'appTheme'       => ['sometimes', 'string', 'in:emerald,ocean,violet,rose,amber,indigo,red,orange,cyan,lime,teal,fuchsia,white,black'],
+            'layoutStyle'    => ['sometimes', 'string', 'in:default,formal'],
         ]);
 
         $user->preferences = array_merge($user->preferences ?? [], $incoming);
         $user->save();
 
         return response()->json(['preferences' => $user->preferences]);
+    }
+
+    public function getBackgroundImage(Request $request): \Symfony\Component\HttpFoundation\BinaryFileResponse
+    {
+        $user  = $request->user();
+        $prefs = $user->preferences ?? [];
+
+        if (empty($prefs['bgCustomUrl'])) {
+            abort(404);
+        }
+
+        $url = $prefs['bgCustomUrl'];
+        // Normalizar si todavía tiene host completo
+        if (!str_starts_with($url, '/storage/') && preg_match('/\/storage\/(backgrounds\/.+)/', $url, $m)) {
+            $url = '/storage/' . $m[1];
+        }
+
+        if (preg_match('/\/storage\/(backgrounds\/[^?]+)/', $url, $m)) {
+            $relativePath = $m[1]; // ej. "backgrounds/user_4_bg.webp"
+            if (Storage::disk('public')->exists($relativePath)) {
+                $filePath = Storage::disk('public')->path($relativePath);
+                return response()->file($filePath, [
+                    'Cache-Control' => 'private, max-age=3600',
+                ]);
+            }
+        }
+
+        abort(404);
+    }
+
+    public function uploadBackground(Request $request): JsonResponse
+    {
+        $request->validate([
+            'image' => ['required', 'image', 'max:5120'], // 5 MB
+        ]);
+
+        $user = $request->user();
+        $prefs = $user->preferences ?? [];
+
+        // Eliminar archivo anterior si existe
+        if (!empty($prefs['bgCustomUrl'])) {
+            if (preg_match('/\/storage\/(backgrounds\/[^?]+)/', $prefs['bgCustomUrl'], $m)) {
+                if (Storage::disk('public')->exists($m[1])) {
+                    Storage::disk('public')->delete($m[1]);
+                }
+            }
+        }
+
+        $ext  = $request->file('image')->getClientOriginalExtension();
+        $path = $request->file('image')->storeAs(
+            'backgrounds',
+            "user_{$user->id}_bg.{$ext}",
+            'public'
+        );
+
+        // Guardar ruta relativa — el frontend resuelve la URL completa según su apiOrigin
+        $bgCustomPath = '/storage/' . $path . '?t=' . time();
+
+        $user->preferences = array_merge($prefs, ['bgCustomUrl' => $bgCustomPath]);
+        $user->save();
+
+        return response()->json(['bgCustomUrl' => $bgCustomPath]);
+    }
+
+    public function deleteBackground(Request $request): JsonResponse
+    {
+        $user  = $request->user();
+        $prefs = $user->preferences ?? [];
+
+        if (!empty($prefs['bgCustomUrl'])) {
+            if (preg_match('/\/storage\/(backgrounds\/[^?]+)/', $prefs['bgCustomUrl'], $m)) {
+                if (Storage::disk('public')->exists($m[1])) {
+                    Storage::disk('public')->delete($m[1]);
+                }
+            }
+            unset($prefs['bgCustomUrl']);
+            $user->preferences = empty($prefs) ? null : $prefs;
+            $user->save();
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     public function logout(Request $request): JsonResponse

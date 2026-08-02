@@ -128,6 +128,21 @@ class UserController extends Controller
         return response()->json(['message' => 'Usuario desactivado']);
     }
 
+    public function forceDestroy(User $user): JsonResponse
+    {
+        $user->tokens()->delete();
+        $user->roles()->detach();
+        $user->update([
+            'full_name'  => 'Usuario eliminado',
+            'email'      => 'deleted_' . $user->id . '@eliminado',
+            'is_active'  => false,
+            'avatar_url' => null,
+            'phone'      => null,
+        ]);
+
+        return response()->json(['message' => 'Usuario eliminado']);
+    }
+
     /**
      * Serve the avatar image for a user.
      */
