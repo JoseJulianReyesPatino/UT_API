@@ -611,7 +611,13 @@ class DocumentController extends Controller
 
     public function byDocente(Request $request): JsonResponse
     {
-        $docenteId = $request->integer('docente_id');
+        $canSeeAll = $this->isAdmin($request) || $this->isSupervisor($request);
+
+        // Docentes solo pueden ver sus propios documentos; admin/supervisor pueden ver cualquier docente
+        $docenteId = $canSeeAll
+            ? $request->integer('docente_id')
+            : $request->user()->id;
+
         $cycleId = $request->integer('cycle_id', $this->getActiveCycleId());
 
         $query = Document::where('uploaded_by', $docenteId)
