@@ -23,9 +23,7 @@ return [
 
     'allowed_origins' => array_filter(array_map('trim', explode(',', env('FRONTEND_ALLOWED', 'http://localhost:5173')))),
 
-    'allowed_origins_patterns' => [
-        '/^https?:\/\/.*\.(ngrok-free\.dev|usw3\.devtunnels\.ms)$/',
-    ],
+    'allowed_origins_patterns' => [],
 
     'allowed_headers' => [
         'Content-Type',
@@ -34,7 +32,6 @@ return [
         'X-CSRF-TOKEN',
         'Accept',
         'Origin',
-        'ngrok-skip-browser-warning',
     ],
 
     'exposed_headers' => [],

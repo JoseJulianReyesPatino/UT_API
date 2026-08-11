@@ -8,7 +8,6 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -50,6 +49,9 @@ class AuthController extends Controller
         }
     }
 
+    /**
+     * Format user data for API response with proper null handling
+     */
     private function formatUser(User $user): array
     {
         $parts = preg_split('/\s+/', trim($user->full_name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
@@ -85,13 +87,13 @@ class AuthController extends Controller
             'first_names' => $firstNames,
             'last_names' => $lastNames,
             'email' => $user->email,
-            'phone' => $user->phone,
-            'area' => $user->area,
+            'phone' => $user->phone ?? '',  // ✅ Siempre string, nunca null
+            'area' => $user->area ?? '',    // ✅ Siempre string, nunca null
             'avatar_url' => $avatarUrl,
             'is_active' => $user->is_active,
             'created_at' => $user->created_at?->toIso8601String(),
             'roles' => $user->roles()->pluck('code')->values(),
-            'supervisor_sections' => $user->supervisorSectionPermission?->sections ?? null,
+            'supervisor_sections' => $user->supervisorSectionPermission?->sections ?? [],
         ];
     }
 
@@ -106,7 +108,7 @@ class AuthController extends Controller
 
         if (!$user || !$user->is_active || !Hash::check($credentials['password'], $user->password_hash)) {
             throw ValidationException::withMessages([
-                'email' => ['Credenciales invalidas.'],
+                'email' => ['Credenciales inválidas.'],
             ]);
         }
 
@@ -222,7 +224,6 @@ class AuthController extends Controller
         $prefs = $request->user()->preferences ?? [];
 
         // Normalizar bgCustomUrl: si tiene host antiguo (localhost u otro), extraer solo la ruta relativa.
-        // El frontend usa resolveApiAssetUrl para construir la URL final con su apiOrigin correcto.
         if (is_array($prefs) && !empty($prefs['bgCustomUrl'])) {
             $url = $prefs['bgCustomUrl'];
             if (!str_starts_with($url, '/storage/') && preg_match('/\/storage\/(backgrounds\/.+)/', $url, $m)) {
@@ -269,7 +270,7 @@ class AuthController extends Controller
         }
 
         if (preg_match('/\/storage\/(backgrounds\/[^?]+)/', $url, $m)) {
-            $relativePath = $m[1]; // ej. "backgrounds/user_4_bg.webp"
+            $relativePath = $m[1];
             if (Storage::disk('public')->exists($relativePath)) {
                 $filePath = Storage::disk('public')->path($relativePath);
                 return response()->file($filePath, [
@@ -338,7 +339,7 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()?->delete();
 
-        return response()->json(['message' => 'Sesion cerrada']);
+        return response()->json(['message' => 'Sesión cerrada']);
     }
 
     public function forgotPassword(Request $request): JsonResponse
@@ -350,7 +351,7 @@ class AuthController extends Controller
         $user = User::query()->where('email', $data['email'])->first();
 
         if (!$user) {
-            return response()->json(['message' => 'Si el correo existe, se enviara un enlace de recuperacion.']);
+            return response()->json(['message' => 'Si el correo existe, se enviará un enlace de recuperación.']);
         }
 
         $plainToken = Str::random(64);
@@ -362,7 +363,6 @@ class AuthController extends Controller
             ]
         );
 
-        // Avoid revealing whether email exists in system for security
         return response()->json([
             'message' => 'Si el correo existe, se enviaron instrucciones para recuperar la contraseña.',
         ]);
@@ -380,7 +380,7 @@ class AuthController extends Controller
 
         if (!$record || !$record->expires_at || $record->expires_at->isPast() || !Hash::check($data['token'], $record->token_hash)) {
             throw ValidationException::withMessages([
-                'token' => ['El token es invalido o expiro.'],
+                'token' => ['El token es inválido o expiró.'],
             ]);
         }
 
@@ -391,6 +391,6 @@ class AuthController extends Controller
 
         $record->delete();
 
-        return response()->json(['message' => 'Contrasena actualizada correctamente.']);
+        return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     }
 }
