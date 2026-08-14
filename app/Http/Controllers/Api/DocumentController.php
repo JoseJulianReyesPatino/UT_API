@@ -168,8 +168,11 @@ class DocumentController extends Controller
             $query->whereRaw('LOWER(apartado_label) = LOWER(?)', [$request->string('apartado_label')]);
         }
 
-        if ($request->filled('cycle_id')) {
-            $cycleId = $request->integer('cycle_id');
+        $cycleId = $request->filled('cycle_id')
+            ? $request->integer('cycle_id')
+            : $this->getActiveCycleId();
+
+        if ($cycleId) {
             $query->where(function ($cycleQuery) use ($cycleId) {
                 $cycleQuery
                     ->where('cycle_id', $cycleId)
