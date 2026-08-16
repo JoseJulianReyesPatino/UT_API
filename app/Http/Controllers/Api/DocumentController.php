@@ -173,17 +173,10 @@ class DocumentController extends Controller
             : $this->getActiveCycleId();
 
         if ($cycleId) {
-            $query->where(function ($cycleQuery) use ($cycleId) {
-                $cycleQuery
-                    ->where('cycle_id', $cycleId)
-                    ->orWhere(function ($legacyQuery) use ($cycleId) {
-                        $legacyQuery
-                            ->whereNull('cycle_id')
-                            ->whereHas('group', function ($groupQuery) use ($cycleId) {
-                                $groupQuery->where('cycle_id', $cycleId);
-                            });
-                    });
-            });
+            $query->where('cycle_id', $cycleId);
+        } else {
+            // Sin ciclo activo: no mostrar ningún documento
+            $query->whereRaw('0 = 1');
         }
 
         if ($request->filled('form_id')) {
@@ -621,13 +614,17 @@ class DocumentController extends Controller
             ? $request->integer('docente_id')
             : $request->user()->id;
 
-        $cycleId = $request->integer('cycle_id', $this->getActiveCycleId());
+        $cycleId = $request->filled('cycle_id')
+            ? $request->integer('cycle_id')
+            : $this->getActiveCycleId();
 
         $query = Document::where('uploaded_by', $docenteId)
             ->with(['form', 'group', 'uploader', 'cycle']);
 
         if ($cycleId) {
             $query->where('cycle_id', $cycleId);
+        } else {
+            $query->whereRaw('0 = 1');
         }
 
         if ($request->filled('status')) {
@@ -652,13 +649,17 @@ class DocumentController extends Controller
 
     public function pendingForReview(Request $request): JsonResponse
     {
-        $cycleId = $request->integer('cycle_id', $this->getActiveCycleId());
+        $cycleId = $request->filled('cycle_id')
+            ? $request->integer('cycle_id')
+            : $this->getActiveCycleId();
 
         $query = Document::where('status', 'pendiente')
             ->with(['form', 'group', 'uploader', 'cycle']);
 
         if ($cycleId) {
             $query->where('cycle_id', $cycleId);
+        } else {
+            $query->whereRaw('0 = 1');
         }
 
         $documents = $query->orderBy('submitted_at')
@@ -670,13 +671,17 @@ class DocumentController extends Controller
 
     public function countByStatus(Request $request): JsonResponse
     {
-        $cycleId = $request->integer('cycle_id', $this->getActiveCycleId());
+        $cycleId = $request->filled('cycle_id')
+            ? $request->integer('cycle_id')
+            : $this->getActiveCycleId();
 
         $counts = [];
         foreach (['pendiente', 'revisado', 'devuelto', 'reenviado'] as $status) {
             $query = Document::where('status', $status);
             if ($cycleId) {
                 $query->where('cycle_id', $cycleId);
+            } else {
+                $query->whereRaw('0 = 1');
             }
             $counts[$status] = $query->count();
         }
