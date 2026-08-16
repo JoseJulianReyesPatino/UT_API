@@ -134,14 +134,20 @@ class AuthController extends Controller
     public function profileStats(Request $request): JsonResponse
     {
         $user = $request->user();
+        $activeCycleId = \App\Models\AcademicCycle::query()->where('status', 'activo')->value('id');
+
+        $base = \App\Models\Document::query()
+            ->where('uploaded_by', $user->id)
+            ->when($activeCycleId, fn ($q) => $q->where('cycle_id', $activeCycleId))
+            ->when(!$activeCycleId, fn ($q) => $q->whereRaw('0 = 1'));
 
         return response()->json([
             'stats' => [
-                'documents_sent' => \App\Models\Document::query()->where('uploaded_by', $user->id)->count(),
-                'documents_reviewed' => \App\Models\Document::query()->where('uploaded_by', $user->id)->where('status', 'revisado')->count(),
-                'documents_pending' => \App\Models\Document::query()->where('uploaded_by', $user->id)->where('status', 'pendiente')->count(),
-                'documents_returned' => \App\Models\Document::query()->where('uploaded_by', $user->id)->where('status', 'devuelto')->count(),
-                'member_since' => $user->created_at?->toIso8601String(),
+                'documents_sent'     => (clone $base)->count(),
+                'documents_reviewed' => (clone $base)->where('status', 'revisado')->count(),
+                'documents_pending'  => (clone $base)->where('status', 'pendiente')->count(),
+                'documents_returned' => (clone $base)->where('status', 'devuelto')->count(),
+                'member_since'       => $user->created_at?->toIso8601String(),
             ],
         ]);
     }

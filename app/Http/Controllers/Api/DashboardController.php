@@ -13,13 +13,20 @@ class DashboardController extends Controller
 {
     public function stats(): JsonResponse
     {
+        $activeCycle = AcademicCycle::query()->where('status', 'activo')->first();
+        $activeCycleId = $activeCycle?->id;
+
+        $base = Document::query()
+            ->when($activeCycleId, fn ($q) => $q->where('cycle_id', $activeCycleId))
+            ->when(!$activeCycleId, fn ($q) => $q->whereRaw('0 = 1'));
+
         return response()->json([
-            'users_total' => User::query()->count(),
-            'documents_total' => Document::query()->count(),
-            'documents_pending' => Document::query()->where('status', 'pendiente')->count(),
-            'documents_reviewed' => Document::query()->where('status', 'revisado')->count(),
-            'messages_total' => Message::query()->count(),
-            'active_cycle' => AcademicCycle::query()->where('status', 'activo')->first(),
+            'users_total'        => User::query()->count(),
+            'documents_total'    => (clone $base)->count(),
+            'documents_pending'  => (clone $base)->where('status', 'pendiente')->count(),
+            'documents_reviewed' => (clone $base)->where('status', 'revisado')->count(),
+            'messages_total'     => Message::query()->count(),
+            'active_cycle'       => $activeCycle,
         ]);
     }
 }
