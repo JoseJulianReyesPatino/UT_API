@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -354,13 +355,22 @@ class AuthController extends Controller
             return response()->json(['message' => 'Si el correo existe, se enviará un enlace de recuperación.']);
         }
 
-        $plainToken = Str::random(64);
+        $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
         PasswordResetToken::query()->updateOrCreate(
             ['email' => $user->email],
             [
-                'token_hash' => Hash::make($plainToken),
+                'token_hash' => Hash::make($code),
                 'expires_at' => now()->addMinutes(30),
             ]
+        );
+
+        Mail::send(
+            'emails.password-reset-code',
+            ['userName' => $user->full_name, 'code' => $code],
+            function ($m) use ($user) {
+                $m->to($user->email)->subject('Código de recuperación - UTSLRC');
+            }
         );
 
         return response()->json([

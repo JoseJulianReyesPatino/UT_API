@@ -73,6 +73,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware('role:administrador')->group(function () {
         Route::apiResource('cycles', CycleController::class);
         Route::apiResource('users', UserController::class);
+        Route::post('users/{user}/reset-password', [UserController::class, 'resetPassword']);
         Route::delete('users/{user}/force-delete', [UserController::class, 'forceDestroy']);
         Route::apiResource('groups', GroupController::class)->except(['index', 'show']);
         Route::apiResource('forms', FormController::class)->only(['update']);

@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
 class UserController extends Controller
@@ -119,6 +120,31 @@ class UserController extends Controller
 
         $user->load('roles')->loadCount('documents');
         return response()->json(['data' => $this->formatUser($user)]);
+    }
+
+    public function resetPassword(User $user): JsonResponse
+    {
+        $upper = chr(random_int(65, 90));
+        $lower = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz'), 0, 3);
+        $digits = str_pad((string) random_int(0, 9999), 4, '0', STR_PAD_LEFT);
+        $tempPassword = $upper . $lower . $digits;
+
+        $user->forceFill([
+            'password_hash' => Hash::make($tempPassword),
+        ])->save();
+
+        Mail::send(
+            'emails.temp-password',
+            ['userName' => $user->full_name, 'tempPassword' => $tempPassword],
+            function ($m) use ($user) {
+                $m->to($user->email)->subject('Tu contraseña ha sido restablecida - UTSLRC');
+            }
+        );
+
+        return response()->json([
+            'message' => 'Contraseña restablecida y correo enviado.',
+            'temp_password' => $tempPassword,
+        ]);
     }
 
     public function destroy(User $user): JsonResponse
