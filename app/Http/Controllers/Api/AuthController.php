@@ -361,7 +361,7 @@ class AuthController extends Controller
             ['email' => $user->email],
             [
                 'token_hash' => Hash::make($code),
-                'expires_at' => now()->addMinutes(30),
+                'expires_at' => now()->addMinutes(15),
             ]
         );
 
