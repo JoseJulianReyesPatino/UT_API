@@ -19,7 +19,7 @@ class PasswordResetCode extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Codigo de recuperacion de contrasena - UTSLRC');
+        return new Envelope(subject: 'Código de recuperación de contraseña - UTSLRC');
     }
 
     public function content(): Content
@@ -30,6 +30,7 @@ class PasswordResetCode extends Mailable
                 'userName' => $this->userName,
                 'code' => $this->code,
                 'logoUrl' => 'https://tutorias.utslrc.edu.mx/images/LogotipoUTSLRC.webp',
+                'logoUrlBlanco' => 'https://tutorias.utslrc.edu.mx/images/LogotipoUTSLRC-BLANCO.webp',
             ]
         );
     }
