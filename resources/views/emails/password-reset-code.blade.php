@@ -1,71 +1,73 @@
 <!DOCTYPE html>
-<html lang="es">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Código de recuperación - UTSLRC</title>
+    <meta charset="UTF-8">
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codigo de recuperacion - UTSLRC</title>
 </head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:40px 0;">
-    <tr>
-      <td align="center">
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;">
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f4f5" style="background-color:#f4f4f5;padding:40px 0;">
+        <tr>
+            <td align="center">
+                <table width="440" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #e4e4e7;border-radius:8px;">
 
-          {{-- Encabezado --}}
-          <tr>
-            <td style="background:#0f172a;border-radius:16px 16px 0 0;padding:32px 40px;text-align:center;">
-              <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#3bbf82;">
-                Universidad Tecnológica de San Luis Río Colorado
-              </p>
-              <h1 style="margin:0;font-size:20px;font-weight:700;color:#ffffff;">
-                Sistema de Gestión Académica
-              </h1>
+                    <!-- Logo con URL (NO embed) -->
+                    <tr>
+                        <td align="center" bgcolor="#ffffff" style="background-color:#ffffff;padding:20px 0 16px 0;border-bottom:1px solid #e4e4e7;">
+                            <img src="{{ $logoUrl }}" alt="Universidad Tecnologica de San Luis Rio Colorado" width="160" style="display:block;margin:0 auto;border:0;outline:none;background-color:#ffffff;" />
+                        </td>
+                    </tr>
+
+                    <!-- Cuerpo -->
+                    <tr>
+                        <td style="padding:24px 30px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="padding:0 0 16px 0;font-size:20px;font-weight:600;color:#18181b;">
+                                        Hola, {{ $userName }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:0 0 24px 0;font-size:14px;color:#52525b;line-height:1.6;">
+                                        Recibimos una solicitud para restablecer la contrasena de tu cuenta. Usa el siguiente codigo para continuar. Expira en <strong style="color:#18181b;">30 minutos</strong>.
+                                    </td>
+                                </tr>
+
+                                <!-- Codigo -->
+                                <tr>
+                                    <td style="padding:0 0 24px 0;">
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;">
+                                            <tr>
+                                                <td align="center" style="padding:20px;font-size:32px;font-weight:700;letter-spacing:8px;color:#18181b;font-family:'Courier New',monospace;">
+                                                    {{ $code }}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <tr>
+                                    <td style="padding:0;font-size:13px;color:#a1a1aa;line-height:1.6;">
+                                        Si no solicitaste este codigo, ignora este correo. Tu contrasena no cambiara a menos que lo ingreses en la plataforma.
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Pie -->
+                    <tr>
+                        <td style="padding:16px 30px;text-align:center;border-top:1px solid #e4e4e7;">
+                            <p style="margin:0;font-size:12px;color:#a1a1aa;">Universidad Tecnologica de San Luis Rio Colorado</p>
+                            <p style="margin:4px 0 0;font-size:11px;color:#d4d4d8;">Este es un mensaje automatico, no respondas a este correo.</p>
+                        </td>
+                    </tr>
+
+                </table>
             </td>
-          </tr>
-
-          {{-- Cuerpo --}}
-          <tr>
-            <td style="background:#ffffff;padding:40px;">
-
-              <p style="margin:0 0 8px;font-size:16px;color:#1e293b;font-weight:600;">
-                Hola, {{ $userName }}
-              </p>
-              <p style="margin:0 0 32px;font-size:14px;color:#64748b;line-height:1.6;">
-                Recibimos una solicitud para restablecer la contraseña de tu cuenta.
-                Usa el siguiente código de 6 dígitos para continuar. Este código
-                expira en <strong style="color:#1e293b;">30 minutos</strong>.
-              </p>
-
-              {{-- Código --}}
-              <div style="background:#f8fafc;border:2px solid #3bbf82;border-radius:14px;padding:28px 16px;text-align:center;margin-bottom:32px;">
-                <p style="margin:0 0 6px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#64748b;">
-                  Código de verificación
-                </p>
-                <p style="margin:0;font-size:44px;font-weight:800;letter-spacing:10px;color:#0f172a;font-family:'Courier New',monospace;">
-                  {{ $code }}
-                </p>
-              </div>
-
-              <p style="margin:0 0 8px;font-size:13px;color:#94a3b8;text-align:center;line-height:1.6;">
-                Si no solicitaste este código, ignora este correo.<br/>
-                Tu contraseña <strong>no cambiará</strong> a menos que lo ingreses en la plataforma.
-              </p>
-
-            </td>
-          </tr>
-
-          {{-- Pie --}}
-          <tr>
-            <td style="background:#f1f5f9;border-radius:0 0 16px 16px;padding:20px 40px;text-align:center;">
-              <p style="margin:0;font-size:12px;color:#94a3b8;">
-                &copy; {{ date('Y') }} UTSLRC &middot; Sistema de Gestión Académica Digital
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
+        </tr>
+    </table>
 </body>
 </html>

@@ -135,7 +135,11 @@ class UserController extends Controller
 
         Mail::send(
             'emails.temp-password',
-            ['userName' => $user->full_name, 'tempPassword' => $tempPassword],
+            [
+                'userName' => $user->full_name,
+                'tempPassword' => $tempPassword,
+                'logoUrl' => 'https://tutorias.utslrc.edu.mx/images/logo-utslrc.webp',
+            ],
             function ($m) use ($user) {
                 $m->to($user->email)->subject('Tu contraseña ha sido restablecida - UTSLRC');
             }

@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
 use App\Models\Group;
+use App\Mail\DocumentReturned;
+use App\Mail\DocumentReviewed;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
 class DocumentController extends Controller
@@ -104,7 +107,6 @@ class DocumentController extends Controller
         return [
             'id' => $document->id,
             'batch_id' => $document->batch_id,
-            // Campos en español (compatibilidad con código existente)
             'nombre' => $document->title,
             'tipo' => $tipo,
             'tipoLabel' => $formTitle,
@@ -123,7 +125,6 @@ class DocumentController extends Controller
             'has_file' => $hasFile,
             'fileUrl' => $fileUrl,
             'downloadUrl' => $downloadUrl,
-            // Campos en inglés esperados por el frontend
             'title' => $document->title,
             'form_title' => $formTitle,
             'carrera_label' => $document->carrera_label,
@@ -175,7 +176,6 @@ class DocumentController extends Controller
         if ($cycleId) {
             $query->where('cycle_id', $cycleId);
         } else {
-            // Sin ciclo activo: no mostrar ningún documento
             $query->whereRaw('0 = 1');
         }
 
@@ -200,7 +200,6 @@ class DocumentController extends Controller
             });
         }
 
-        // Los docentes solo ven sus documentos no ocultos, a menos que pidan incluir ocultos explícitamente
         if (!$canSeeAll && !$request->boolean('include_hidden')) {
             $query->where('hidden_by_docente', false);
         }
@@ -233,12 +232,11 @@ class DocumentController extends Controller
                     $fail('El archivo debe ser un PDF.');
                     return;
                 }
-                // Verify actual file content via magic bytes (%PDF-)
                 $handle = fopen($value->getPathname(), 'rb');
                 $header = fread($handle, 5);
                 fclose($handle);
                 if ($header !== '%PDF-') {
-                    $fail('El archivo no es un PDF válido. Asegúrate de subir el archivo correcto y no una página web o acceso directo.');
+                    $fail('El archivo no es un PDF valido. Asegurate de subir el archivo correcto y no una pagina web o acceso directo.');
                 }
             }],
             'nota' => ['nullable', 'string', 'max:1000'],
@@ -255,7 +253,6 @@ class DocumentController extends Controller
             ], 422);
         }
 
-        // Verificar que el formulario esté abierto y que el rol del usuario tenga acceso
         $form = \App\Models\Form::with('accessRule.roles')->find($data['form_id']);
         if ($form) {
             if ($form->accessRule?->due_at?->isPast()) {
@@ -362,9 +359,6 @@ class DocumentController extends Controller
         return response()->json(['data' => $document->fresh()]);
     }
 
-    /**
-     * Ocultar un documento del historial del docente sin eliminarlo
-     */
     public function hide(Request $request, Document $document): JsonResponse
     {
         if ($document->uploaded_by !== $request->user()?->id) {
@@ -376,20 +370,15 @@ class DocumentController extends Controller
         return response()->json(['message' => 'Documento ocultado del historial correctamente.']);
     }
 
-    /**
-     * Eliminar un documento (con manejo de errores mejorado)
-     */
     public function destroy(Request $request, Document $document): JsonResponse
     {
         try {
-            // Verificar permisos
             if (!$this->canAccessDocument($request, $document)) {
                 return response()->json([
                     'message' => 'No tienes permiso para eliminar este documento.'
                 ], 403);
             }
 
-            // Eliminar el archivo físico si existe
             if ($document->file_path) {
                 $storedPath = $this->resolveDocumentStoragePath($document->file_path);
                 if ($storedPath && Storage::disk('public')->exists($storedPath)) {
@@ -397,7 +386,6 @@ class DocumentController extends Controller
                 }
             }
 
-            // Eliminar el registro de la base de datos
             $document->delete();
 
             return response()->json([
@@ -461,7 +449,6 @@ class DocumentController extends Controller
             return null;
         }
 
-        // Ruta normalizada (quita prefijos residuales de versiones anteriores)
         $normalized = ltrim(trim($filePath), '/');
         $stripped   = preg_replace('#^(storage|public|uploads)/+#', '', $normalized);
 
@@ -474,41 +461,97 @@ class DocumentController extends Controller
         return null;
     }
 
-    public function review(Request $request, Document $document): JsonResponse
-    {
-        if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
-            return response()->json(['message' => 'Solo administradores o supervisores pueden revisar documentos.'], 403);
-        }
-
-        $data = $request->validate([
-            'status' => ['required', 'in:revisado,devuelto'],
-            'notes' => ['nullable', 'string'],
-        ]);
-
-        $document->status = $data['status'];
-        $document->reviewed_at = now();
-        $document->save();
-
-        return response()->json(['data' => $this->formatDocument($document->fresh()->load(['form', 'group', 'uploader', 'cycle']))]);
+ public function review(Request $request, Document $document): JsonResponse
+{
+    if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
+        return response()->json([
+            'message' => 'Solo administradores o supervisores pueden revisar documentos.'
+        ], 403);
     }
 
-    public function returnDocument(Request $request, Document $document): JsonResponse
-    {
-        if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
-            return response()->json(['message' => 'Solo administradores o supervisores pueden devolver documentos.'], 403);
+    $data = $request->validate([
+        'status' => ['required', 'in:revisado,devuelto'],
+        'notes' => ['nullable', 'string'],
+    ]);
+
+    $document->status = $data['status'];
+    $document->reviewed_at = now();
+    $document->save();
+
+    $emailSent = false;
+    if ($data['status'] === 'revisado') {
+        $uploader = $document->uploader;
+        if ($uploader && $uploader->email) {
+            try {
+                Mail::to($uploader->email)->send(new DocumentReviewed(
+                    document: $document,
+                    adminName: $request->user()->full_name ?? 'Administrador'
+                ));
+                \Log::info('Correo de revision enviado a: ' . $uploader->email);
+                $emailSent = true;
+            } catch (\Exception $e) {
+                \Log::error('Error al enviar correo de revision: ' . $e->getMessage());
+            }
         }
-
-        $data = $request->validate([
-            'notes' => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        $document->status = 'devuelto';
-        $document->returned_at = now();
-        $document->returned_comment = $data['notes'] ?? null;
-        $document->save();
-
-        return response()->json(['data' => $this->formatDocument($document->fresh())]);
     }
+
+    return response()->json([
+        'data' => $this->formatDocument($document->fresh()->load(['form', 'group', 'uploader', 'cycle'])),
+        'email_sent' => $emailSent,
+    ]);
+}
+
+/**
+ * Devolver un documento al docente con notificacion por correo
+ */
+public function returnDocument(Request $request, Document $document): JsonResponse
+{
+    if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
+        return response()->json([
+            'message' => 'Solo administradores o supervisores pueden devolver documentos.'
+        ], 403);
+    }
+
+    $data = $request->validate([
+        'notes' => ['nullable', 'string', 'max:2000'],
+    ]);
+
+    $document->status = 'devuelto';
+    $document->returned_at = now();
+    $document->returned_comment = $data['notes'] ?? null;
+    $document->save();
+
+    $uploader = $document->uploader;
+    $admin = $request->user();
+
+    $emailSent = false;
+    if ($uploader && $uploader->email) {
+        try {
+            $submittedAt = $document->submitted_at
+                ? $document->submitted_at->setTimezone('America/Hermosillo')->format('d/m/Y H:i')
+                : 'No disponible';
+
+            Mail::to($uploader->email)->send(new DocumentReturned(
+                document: $document,
+                comment: $data['notes'] ?? 'Sin motivo especifico',
+                adminName: $admin->full_name ?? 'Administrador',
+                submittedAt: $submittedAt
+            ));
+
+            \Log::info('Correo de devolucion enviado a: ' . $uploader->email . ' para documento ID: ' . $document->id);
+            $emailSent = true;
+        } catch (\Exception $e) {
+            \Log::error('Error al enviar correo de devolucion: ' . $e->getMessage());
+        }
+    } else {
+        \Log::warning('No se pudo enviar correo de devolucion: el docente no tiene email registrado. Documento ID: ' . $document->id);
+    }
+
+    return response()->json([
+        'data' => $this->formatDocument($document->fresh()),
+        'email_sent' => $emailSent,
+    ]);
+}
 
     public function resubmit(Request $request, Document $document): JsonResponse
     {
@@ -534,7 +577,7 @@ class DocumentController extends Controller
                 $header = fread($handle, 5);
                 fclose($handle);
                 if ($header !== '%PDF-') {
-                    $fail('El archivo no es un PDF válido. Asegúrate de subir el archivo correcto.');
+                    $fail('El archivo no es un PDF valido. Asegurate de subir el archivo correcto.');
                 }
             }],
         ]);
@@ -609,7 +652,6 @@ class DocumentController extends Controller
     {
         $canSeeAll = $this->isAdmin($request) || $this->isSupervisor($request);
 
-        // Docentes solo pueden ver sus propios documentos; admin/supervisor pueden ver cualquier docente
         $docenteId = $canSeeAll
             ? $request->integer('docente_id')
             : $request->user()->id;

@@ -88,8 +88,8 @@ class AuthController extends Controller
             'first_names' => $firstNames,
             'last_names' => $lastNames,
             'email' => $user->email,
-            'phone' => $user->phone ?? '',  // ✅ Siempre string, nunca null
-            'area' => $user->area ?? '',    // ✅ Siempre string, nunca null
+            'phone' => $user->phone ?? '',
+            'area' => $user->area ?? '',
             'avatar_url' => $avatarUrl,
             'is_active' => $user->is_active,
             'created_at' => $user->created_at?->toIso8601String(),
@@ -349,41 +349,41 @@ class AuthController extends Controller
         return response()->json(['message' => 'Sesión cerrada']);
     }
 
-    public function forgotPassword(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-        ]);
+public function forgotPassword(Request $request): JsonResponse
+{
+    $data = $request->validate([
+        'email' => ['required', 'email'],
+    ]);
 
-        $user = User::query()->where('email', $data['email'])->first();
+    $user = User::query()->where('email', $data['email'])->first();
 
-        if (!$user) {
-            return response()->json(['message' => 'Si el correo existe, se enviará un enlace de recuperación.']);
-        }
-
-        $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
-        PasswordResetToken::query()->updateOrCreate(
-            ['email' => $user->email],
-            [
-                'token_hash' => Hash::make($code),
-                'expires_at' => now()->addMinutes(15),
-            ]
-        );
-
-        Mail::send(
-            'emails.password-reset-code',
-            ['userName' => $user->full_name, 'code' => $code],
-            function ($m) use ($user) {
-                $m->to($user->email)->subject('Código de recuperación - UTSLRC');
-            }
-        );
-
-        return response()->json([
-            'message' => 'Si el correo existe, se enviaron instrucciones para recuperar la contraseña.',
-        ]);
+    if (!$user) {
+        return response()->json(['message' => 'Si el correo existe, se enviara un enlace de recuperacion.']);
     }
 
+    $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+    PasswordResetToken::query()->updateOrCreate(
+        ['email' => $user->email],
+        [
+            'token_hash' => Hash::make($code),
+            'expires_at' => now()->addMinutes(15),
+        ]
+    );
+
+    try {
+        Mail::to($user->email)->send(new \App\Mail\PasswordResetCode(
+            code: $code,
+            userName: $user->full_name,
+        ));
+    } catch (\Exception $e) {
+        \Log::error('Error al enviar correo de recuperacion: ' . $e->getMessage());
+    }
+
+    return response()->json([
+        'message' => 'Si el correo existe, se enviaron instrucciones para recuperar la contrasena.',
+    ]);
+}
     public function resetPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
