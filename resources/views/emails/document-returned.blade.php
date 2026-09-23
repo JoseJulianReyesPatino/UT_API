@@ -2,8 +2,6 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
     <meta charset="UTF-8">
-    <meta name="color-scheme" content="light">
-    <meta name="supported-color-schemes" content="light">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documento devuelto - UTSLRC</title>
 </head>
@@ -13,9 +11,9 @@
             <td align="center">
                 <table width="480" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #e4e4e7;border-radius:8px;">
 
-                    <!-- Logo con URL (NO embed) -->
+                    <!-- Logo (sin texto debajo) -->
                     <tr>
-                        <td align="center" bgcolor="#ffffff" style="background-color:#ffffff;padding:20px 0 16px 0;border-bottom:1px solid #e4e4e7;">
+                        <td align="center" bgcolor="#ffffff" style="background-color:#ffffff;padding:24px 0 20px 0;border-bottom:2px solid #e4e4e7;">
                             <img src="{{ $logoUrl }}" alt="Universidad Tecnologica de San Luis Rio Colorado" width="160" style="display:block;margin:0 auto;border:0;outline:none;background-color:#ffffff;" />
                         </td>
                     </tr>
@@ -53,8 +51,8 @@
                                                 <td style="padding:10px 0;border-top:1px solid #e4e4e7;font-size:13px;color:#18181b;font-weight:500;text-align:right;">{{ $documentType }}</td>
                                             </tr>
                                             <tr>
-                                                <td style="padding:10px 0;border-top:1px solid #e4e4e7;font-size:13px;color:#71717a;">Enviado</td>
-                                                <td style="padding:10px 0;border-top:1px solid #e4e4e7;font-size:13px;color:#18181b;font-weight:500;text-align:right;">{{ $submittedAt }}</td>
+                                                <td style="padding:10px 0;border-top:1px solid #e4e4e7;font-size:13px;color:#71717a;">Devuelto</td>
+                                                <td style="padding:10px 0;border-top:1px solid #e4e4e7;font-size:13px;color:#18181b;font-weight:500;text-align:right;">{{ $returnedAt }}</td>
                                             </tr>
                                         </table>
                                     </td>

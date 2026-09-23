@@ -4,12 +4,13 @@ namespace App\Mail;
 
 use App\Models\Document;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class DocumentReturned extends Mailable
+class DocumentReturned extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
@@ -17,7 +18,6 @@ class DocumentReturned extends Mailable
         public readonly Document $document,
         public readonly string $comment,
         public readonly string $adminName,
-        public readonly ?string $submittedAt = null,
     ) {}
 
     public function envelope(): Envelope
@@ -29,10 +29,9 @@ class DocumentReturned extends Mailable
 
     public function content(): Content
     {
-        $submittedAt = $this->submittedAt
-            ?: ($this->document->submitted_at
-                ? $this->document->submitted_at->setTimezone('America/Hermosillo')->format('d/m/Y H:i')
-                : 'No disponible');
+        $returnedAt = $this->document->returned_at
+            ? $this->document->returned_at->setTimezone('America/Hermosillo')->format('d/m/Y H:i')
+            : 'No disponible';
 
         return new Content(
             view: 'emails.document-returned',
@@ -42,7 +41,7 @@ class DocumentReturned extends Mailable
                 'comment' => $this->comment,
                 'adminName' => $this->adminName,
                 'documentId' => $this->document->id,
-                'submittedAt' => $submittedAt,
+                'returnedAt' => $returnedAt,
                 'appUrl' => config('app.url'),
                 'docenteName' => $this->document->uploader?->full_name ?? 'Docente',
                 'docenteEmail' => $this->document->uploader?->email ?? '',

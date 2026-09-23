@@ -4,12 +4,13 @@ namespace App\Mail;
 
 use App\Models\Document;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class DocumentReviewed extends Mailable
+class DocumentReviewed extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
@@ -27,8 +28,9 @@ class DocumentReviewed extends Mailable
 
     public function content(): Content
     {
-        $submittedAt = $this->document->submitted_at
-            ? $this->document->submitted_at->setTimezone('America/Hermosillo')->format('d/m/Y H:i')
+        // ✅ Usar reviewed_at (cuando el admin revisó) en lugar de submitted_at
+        $reviewedAt = $this->document->reviewed_at
+            ? $this->document->reviewed_at->setTimezone('America/Hermosillo')->format('d/m/Y H:i')
             : 'No disponible';
 
         return new Content(
@@ -39,7 +41,7 @@ class DocumentReviewed extends Mailable
                 'adminName' => $this->adminName,
                 'docenteName' => $this->document->uploader?->full_name ?? 'Docente',
                 'appUrl' => config('app.url'),
-                'submittedAt' => $submittedAt,
+                'reviewedAt' => $reviewedAt,
                 'logoUrl' => 'https://tutorias.utslrc.edu.mx/images/LogotipoUTSLRC.webp',
             ]
         );

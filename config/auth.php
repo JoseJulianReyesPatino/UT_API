@@ -2,7 +2,8 @@
 
 return [
     'defaults' => [
-        'guard' => env('AUTH_GUARD', 'web'),
+        // ✅ FIX: usar sanctum por defecto en API
+        'guard' => env('AUTH_GUARD', 'sanctum'),
         'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
     ],
 

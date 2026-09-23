@@ -7,7 +7,6 @@ use App\Models\Document;
 use App\Models\Group;
 use App\Mail\DocumentReturned;
 use App\Mail\DocumentReviewed;
-use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -242,14 +241,12 @@ class DocumentController extends Controller
             'nota' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $resolvedCycleId = $this->resolveCycleId(
-            isset($data['cycle_id']) ? (int) $data['cycle_id'] : null,
-            isset($data['group_id']) ? (int) $data['group_id'] : null,
-        );
+        // ✅ Los documentos nuevos SIEMPRE van al ciclo activo.
+        $resolvedCycleId = $this->getActiveCycleId();
 
         if (!$resolvedCycleId) {
             return response()->json([
-                'message' => 'No hay ciclo disponible para registrar el documento. Define un ciclo activo o selecciona un grupo con ciclo.',
+                'message' => 'No hay ningún ciclo escolar registrado. Crea uno antes de subir documentos.',
             ], 422);
         }
 
@@ -336,19 +333,13 @@ class DocumentController extends Controller
             $payload['plan'] = in_array($normalized, ['nuevo_modelo', 'plan_normal']) ? $normalized : null;
         }
 
-        $resolvedGroupId = array_key_exists('group_id', $payload)
-            ? (int) $payload['group_id']
-            : (int) ($document->group_id ?? 0);
-
-        $resolvedCycleId = $this->resolveCycleId(
-            array_key_exists('cycle_id', $payload) ? (int) $payload['cycle_id'] : null,
-            $resolvedGroupId,
-            (int) ($document->cycle_id ?? 0),
-        );
+        // ✅ Al editar, el documento conserva su ciclo original.
+        $activeCycleId = $this->getActiveCycleId();
+        $resolvedCycleId = $document->cycle_id ?: $activeCycleId;
 
         if (!$resolvedCycleId) {
             return response()->json([
-                'message' => 'No hay ciclo disponible para actualizar el documento. Define un ciclo activo o selecciona un grupo con ciclo.',
+                'message' => 'No hay ciclo disponible para actualizar el documento. Define un ciclo activo.',
             ], 422);
         }
 
@@ -461,97 +452,90 @@ class DocumentController extends Controller
         return null;
     }
 
- public function review(Request $request, Document $document): JsonResponse
-{
-    if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
-        return response()->json([
-            'message' => 'Solo administradores o supervisores pueden revisar documentos.'
-        ], 403);
-    }
+    public function review(Request $request, Document $document): JsonResponse
+    {
+        if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
+            return response()->json([
+                'message' => 'Solo administradores o supervisores pueden revisar documentos.'
+            ], 403);
+        }
 
-    $data = $request->validate([
-        'status' => ['required', 'in:revisado,devuelto'],
-        'notes' => ['nullable', 'string'],
-    ]);
+        $data = $request->validate([
+            'status' => ['required', 'in:revisado,devuelto'],
+            'notes' => ['nullable', 'string'],
+        ]);
 
-    $document->status = $data['status'];
-    $document->reviewed_at = now();
-    $document->save();
+        $document->status = $data['status'];
+        $document->reviewed_at = now();
+        $document->save();
 
-    $emailSent = false;
-    if ($data['status'] === 'revisado') {
-        $uploader = $document->uploader;
-        if ($uploader && $uploader->email) {
-            try {
-                Mail::to($uploader->email)->send(new DocumentReviewed(
-                    document: $document,
-                    adminName: $request->user()->full_name ?? 'Administrador'
-                ));
-                \Log::info('Correo de revision enviado a: ' . $uploader->email);
-                $emailSent = true;
-            } catch (\Exception $e) {
-                \Log::error('Error al enviar correo de revision: ' . $e->getMessage());
+        $emailSent = false;
+        if ($data['status'] === 'revisado') {
+            $uploader = $document->uploader;
+            if ($uploader && $uploader->email) {
+                try {
+                    Mail::to($uploader->email)->send(new DocumentReviewed(
+                        document: $document,
+                        adminName: $request->user()->full_name ?? 'Administrador'
+                    ));
+                    \Log::info('Correo de revision enviado a: ' . $uploader->email);
+                    $emailSent = true;
+                } catch (\Exception $e) {
+                    \Log::error('Error al enviar correo de revision: ' . $e->getMessage());
+                }
             }
         }
-    }
 
-    return response()->json([
-        'data' => $this->formatDocument($document->fresh()->load(['form', 'group', 'uploader', 'cycle'])),
-        'email_sent' => $emailSent,
-    ]);
-}
-
-/**
- * Devolver un documento al docente con notificacion por correo
- */
-public function returnDocument(Request $request, Document $document): JsonResponse
-{
-    if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
         return response()->json([
-            'message' => 'Solo administradores o supervisores pueden devolver documentos.'
-        ], 403);
+            'data' => $this->formatDocument($document->fresh()->load(['form', 'group', 'uploader', 'cycle'])),
+            'email_sent' => $emailSent,
+        ]);
     }
 
-    $data = $request->validate([
-        'notes' => ['nullable', 'string', 'max:2000'],
-    ]);
-
-    $document->status = 'devuelto';
-    $document->returned_at = now();
-    $document->returned_comment = $data['notes'] ?? null;
-    $document->save();
-
-    $uploader = $document->uploader;
-    $admin = $request->user();
-
-    $emailSent = false;
-    if ($uploader && $uploader->email) {
-        try {
-            $submittedAt = $document->submitted_at
-                ? $document->submitted_at->setTimezone('America/Hermosillo')->format('d/m/Y H:i')
-                : 'No disponible';
-
-            Mail::to($uploader->email)->send(new DocumentReturned(
-                document: $document,
-                comment: $data['notes'] ?? 'Sin motivo especifico',
-                adminName: $admin->full_name ?? 'Administrador',
-                submittedAt: $submittedAt
-            ));
-
-            \Log::info('Correo de devolucion enviado a: ' . $uploader->email . ' para documento ID: ' . $document->id);
-            $emailSent = true;
-        } catch (\Exception $e) {
-            \Log::error('Error al enviar correo de devolucion: ' . $e->getMessage());
+    public function returnDocument(Request $request, Document $document): JsonResponse
+    {
+        if (!$this->isAdmin($request) && !$this->isSupervisor($request)) {
+            return response()->json([
+                'message' => 'Solo administradores o supervisores pueden devolver documentos.'
+            ], 403);
         }
-    } else {
-        \Log::warning('No se pudo enviar correo de devolucion: el docente no tiene email registrado. Documento ID: ' . $document->id);
-    }
 
-    return response()->json([
-        'data' => $this->formatDocument($document->fresh()),
-        'email_sent' => $emailSent,
-    ]);
-}
+        $data = $request->validate([
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $document->status = 'devuelto';
+        $document->returned_at = now();
+        $document->returned_comment = $data['notes'] ?? null;
+        $document->save();
+
+        $uploader = $document->uploader;
+        $admin = $request->user();
+
+        $emailSent = false;
+        if ($uploader && $uploader->email) {
+            try {
+                // ✅ FIX: Ya NO pasamos $submittedAt porque el Mailable no lo acepta.
+                Mail::to($uploader->email)->send(new DocumentReturned(
+                    document: $document,
+                    comment: $data['notes'] ?? 'Sin motivo especifico',
+                    adminName: $admin->full_name ?? 'Administrador',
+                ));
+
+                \Log::info('Correo de devolucion enviado a: ' . $uploader->email . ' para documento ID: ' . $document->id);
+                $emailSent = true;
+            } catch (\Exception $e) {
+                \Log::error('Error al enviar correo de devolucion: ' . $e->getMessage());
+            }
+        } else {
+            \Log::warning('No se pudo enviar correo de devolucion: el docente no tiene email registrado. Documento ID: ' . $document->id);
+        }
+
+        return response()->json([
+            'data' => $this->formatDocument($document->fresh()),
+            'email_sent' => $emailSent,
+        ]);
+    }
 
     public function resubmit(Request $request, Document $document): JsonResponse
     {
@@ -613,10 +597,22 @@ public function returnDocument(Request $request, Document $document): JsonRespon
         return response()->json(['data' => $this->formatDocument($document->fresh())]);
     }
 
+    /**
+     * Devuelve el ID del ciclo activo. Si no hay ninguno activo,
+     * usa el ciclo más reciente como fallback para no bloquear
+     * la subida de documentos.
+     */
     private function getActiveCycleId(): ?int
     {
+        // 1. Intentar con el ciclo activo
         $activeCycle = \App\Models\AcademicCycle::where('status', 'activo')->first();
-        return $activeCycle?->id;
+        if ($activeCycle) {
+            return $activeCycle->id;
+        }
+
+        // 2. Fallback: usar el ciclo más reciente si no hay activo
+        $fallbackCycle = \App\Models\AcademicCycle::orderByDesc('created_at')->first();
+        return $fallbackCycle?->id;
     }
 
     public function byCycleActive(Request $request): JsonResponse
