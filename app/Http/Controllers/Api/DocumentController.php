@@ -35,7 +35,12 @@ class DocumentController extends Controller
         if ($groupId && $groupId > 0) {
             $groupCycleId = Group::query()->whereKey($groupId)->value('cycle_id');
             if ($groupCycleId) {
-                return (int) $groupCycleId;
+                $cycleIsActive = \App\Models\AcademicCycle::where('id', $groupCycleId)
+                    ->where('status', 'activo')
+                    ->exists();
+                if ($cycleIsActive) {
+                    return (int) $groupCycleId;
+                }
             }
         }
 
