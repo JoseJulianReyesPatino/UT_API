@@ -61,14 +61,20 @@ class GroupController extends Controller
     {
         $data = $request->validate([
             'careerCode' => ['required', 'string', 'max:32'],
-            'plan' => ['required', Rule::in(['nuevo-modelo', 'plan-normal'])],
-            'cuatrimestre' => ['required', 'integer', 'min:0', 'max:12'],
+            'plan' => ['required', Rule::in(['nuevo-modelo', 'plan-normal', 'plan-despresurizada'])],
+            'cuatrimestre' => ['required', 'integer', 'min:0', 'max:13'],
             'groupNumber' => ['required', 'integer', 'min:1', 'max:99'],
         ]);
 
+        $planNormalized = match ($data['plan']) {
+            'nuevo-modelo'        => 'nuevo_modelo',
+            'plan-despresurizada' => 'plan_despresurizada',
+            default               => 'plan_normal',
+        };
+
         $careerId = $this->resolveCareerId(
             strtoupper($data['careerCode']),
-            $data['plan'] === 'nuevo-modelo' ? 'nuevo_modelo' : 'plan_normal',
+            $planNormalized,
             (int) $data['cuatrimestre']
         );
 
@@ -124,8 +130,8 @@ class GroupController extends Controller
     {
         $data = $request->validate([
             'careerCode' => ['sometimes', 'string', 'max:32'],
-            'plan' => ['sometimes', Rule::in(['nuevo-modelo', 'plan-normal'])],
-            'cuatrimestre' => ['sometimes', 'integer', 'min:0', 'max:12'],
+            'plan' => ['sometimes', Rule::in(['nuevo-modelo', 'plan-normal', 'plan-despresurizada'])],
+            'cuatrimestre' => ['sometimes', 'integer', 'min:0', 'max:13'],
             'groupNumber' => ['sometimes', 'integer', 'min:1', 'max:99'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
@@ -144,8 +150,12 @@ class GroupController extends Controller
 
         if (isset($data['careerCode']) || isset($data['plan']) || isset($data['cuatrimestre'])) {
             $careerCode = strtoupper($data['careerCode'] ?? $group->career->code ?? '');
-            $plan = $data['plan'] ?? $this->planFromCareerId($group->career_id);
-            $plan = $plan === 'nuevo-modelo' ? 'nuevo_modelo' : 'plan_normal';
+            $rawPlan = $data['plan'] ?? $this->planFromCareerId($group->career_id);
+            $plan = match ($rawPlan) {
+                'nuevo-modelo'        => 'nuevo_modelo',
+                'plan-despresurizada' => 'plan_despresurizada',
+                default               => 'plan_normal',
+            };
             $cuatrimestre = $data['cuatrimestre'] ?? $group->cuatrimestre;
 
             $group->career_id = $this->resolveCareerId($careerCode, $plan, (int) $cuatrimestre);
@@ -180,6 +190,9 @@ class GroupController extends Controller
             $level = ($cuatrimestre >= 0 && $cuatrimestre <= 6) ? 'TSU' : 'Ingenieria';
         } elseif ($plan === 'plan_normal') {
             $level = 'Ingenieria';
+        } elseif ($plan === 'plan_despresurizada') {
+            // Despresurizada: TSU en cuatrimestres 1-9, Ingeniería en 10-13
+            $level = ($cuatrimestre >= 1 && $cuatrimestre <= 9) ? 'TSU' : 'Ingenieria';
         }
 
         $query = Career::where('code', $careerCode)->where('plan', $plan);
@@ -215,6 +228,10 @@ class GroupController extends Controller
         if (!$career) {
             return 'plan-normal';
         }
-        return $career->plan === 'nuevo_modelo' ? 'nuevo-modelo' : 'plan-normal';
+        return match ($career->plan) {
+            'nuevo_modelo'        => 'nuevo-modelo',
+            'plan_despresurizada' => 'plan-despresurizada',
+            default               => 'plan-normal',
+        };
     }
 }

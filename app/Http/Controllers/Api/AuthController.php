@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -25,17 +26,14 @@ class AuthController extends Controller
             return;
         }
 
-        // Ignore external URLs and data URIs
         if (str_starts_with($avatarUrl, 'http') || str_starts_with($avatarUrl, 'data:')) {
             return;
         }
 
-        // Resolve relative storage path
         $storagePath = $avatarUrl;
         if (str_starts_with($storagePath, '/storage/')) {
             $storagePath = substr($storagePath, strlen('/storage/'));
         } elseif (str_starts_with($storagePath, '/uploads/')) {
-            // Legacy uploads path — try public disk path
             $legacyFull = public_path(ltrim($storagePath, '/'));
             if (file_exists($legacyFull)) {
                 @unlink($legacyFull);
@@ -59,10 +57,8 @@ class AuthController extends Controller
         $firstNames = count($parts) <= 1 ? trim($user->full_name) : implode(' ', array_slice($parts, 0, -1));
         $lastNames = count($parts) <= 1 ? '' : (string) array_slice($parts, -1)[0];
 
-        // Asegurar que avatar_url sea una URL completa o null
         $avatarUrl = $user->avatar_url;
         if ($avatarUrl && !str_starts_with($avatarUrl, 'http')) {
-            // Build origin from current request, check for ngrok X-Forwarded-Proto header
             $scheme = request()->headers->get('X-Forwarded-Proto') ?: request()->getScheme();
             $host = request()->getHost();
             $origin = $scheme . '://' . $host;
@@ -72,12 +68,10 @@ class AuthController extends Controller
             } elseif (str_starts_with($avatarUrl, '/api/')) {
                 $avatarUrl = $origin . $avatarUrl;
             } elseif (str_starts_with($avatarUrl, '/uploads/')) {
-                // Legacy uploads path
                 $avatarUrl = $origin . str_replace('/uploads/', '/storage/', $avatarUrl);
             } elseif (!str_starts_with($avatarUrl, '/')) {
                 $avatarUrl = $origin . '/storage/' . $avatarUrl;
             } else {
-                // Starts with / but no /storage/ or /api/
                 $avatarUrl = $origin . $avatarUrl;
             }
         }
@@ -98,12 +92,59 @@ class AuthController extends Controller
         ];
     }
 
+    /**
+     * 🛡️ Valida el token de reCAPTCHA v2 contra la API de Google.
+     * Si no hay RECAPTCHA_SECRET_KEY configurado, se omite (modo dev sin captcha).
+     */
+       private function verifyRecaptcha(?string $token): void
+    {
+        $secret = config('services.recaptcha.secret');
+
+        if (!$secret) {
+            return; // No configurado → no bloqueamos
+        }
+
+        if (!$token) {
+            throw ValidationException::withMessages([
+                'recaptcha' => ['Debes completar la verificación "No soy un robot".'],
+            ]);
+        }
+
+        // 🔍 DEBUG: Ver qué token está llegando
+        \Log::info('Token de reCAPTCHA recibido: ' . substr($token, 0, 30) . '...');
+
+        $response = Http::asForm()->timeout(10)->post(
+            'https://www.google.com/recaptcha/api/siteverify',
+            [
+                'secret'   => $secret,
+                'response' => $token,
+                'remoteip' => request()->ip(),
+            ]
+        );
+
+        $body = $response->json();
+
+        // 🔍 DEBUG: Ver qué responde Google exactamente
+        \Log::info('Respuesta de Google reCAPTCHA:', $body);
+if (!($body['success'] ?? false)) {
+    \Log::warning('Fallo reCAPTCHA', ['error-codes' => $body['error-codes'] ?? null]);
+
+    throw ValidationException::withMessages([
+        'recaptcha' => ['La verificación de seguridad falló. Intenta de nuevo.'],
+    ]);
+}
+    }
+
     public function login(Request $request): JsonResponse
     {
         $credentials = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
+            'email'     => ['required', 'email'],
+            'password'  => ['required', 'string'],
+            'recaptcha' => ['nullable', 'string'],
         ]);
+
+        // ✅ reCAPTCHA OBLIGATORIO
+        $this->verifyRecaptcha($credentials['recaptcha'] ?? null);
 
         $user = User::query()->where('email', $credentials['email'])->first();
 
@@ -167,14 +208,10 @@ class AuthController extends Controller
         $removingAvatar = $request->has('avatar_url') && is_null($request->input('avatar_url'));
 
         if ($request->hasFile('avatar')) {
-            // Eliminar avatar anterior si existe
             $this->deleteStoredAvatar($user->avatar_url);
-
-            // Guardar nuevo avatar
             $path = $request->file('avatar')->store('avatars', 'public');
             $data['avatar_url'] = env('APP_URL') . '/storage/' . $path;
         } elseif ($removingAvatar) {
-            // Quitar foto de perfil: eliminar archivo físico
             $this->deleteStoredAvatar($user->avatar_url);
             $data['avatar_url'] = null;
         }
@@ -230,7 +267,6 @@ class AuthController extends Controller
     {
         $prefs = $request->user()->preferences ?? [];
 
-        // Normalizar bgCustomUrl: si tiene host antiguo (localhost u otro), extraer solo la ruta relativa.
         if (is_array($prefs) && !empty($prefs['bgCustomUrl'])) {
             $url = $prefs['bgCustomUrl'];
             if (!str_starts_with($url, '/storage/') && preg_match('/\/storage\/(backgrounds\/.+)/', $url, $m)) {
@@ -271,7 +307,6 @@ class AuthController extends Controller
         }
 
         $url = $prefs['bgCustomUrl'];
-        // Normalizar si todavía tiene host completo
         if (!str_starts_with($url, '/storage/') && preg_match('/\/storage\/(backgrounds\/.+)/', $url, $m)) {
             $url = '/storage/' . $m[1];
         }
@@ -292,13 +327,12 @@ class AuthController extends Controller
     public function uploadBackground(Request $request): JsonResponse
     {
         $request->validate([
-            'image' => ['required', 'image', 'max:5120'], // 5 MB
+            'image' => ['required', 'image', 'max:5120'],
         ]);
 
         $user = $request->user();
         $prefs = $user->preferences ?? [];
 
-        // Eliminar archivo anterior si existe
         if (!empty($prefs['bgCustomUrl'])) {
             if (preg_match('/\/storage\/(backgrounds\/[^?]+)/', $prefs['bgCustomUrl'], $m)) {
                 if (Storage::disk('public')->exists($m[1])) {
@@ -314,7 +348,6 @@ class AuthController extends Controller
             'public'
         );
 
-        // Guardar ruta relativa — el frontend resuelve la URL completa según su apiOrigin
         $bgCustomPath = '/storage/' . $path . '?t=' . time();
 
         $user->preferences = array_merge($prefs, ['bgCustomUrl' => $bgCustomPath]);
@@ -349,41 +382,42 @@ class AuthController extends Controller
         return response()->json(['message' => 'Sesión cerrada']);
     }
 
-public function forgotPassword(Request $request): JsonResponse
-{
-    $data = $request->validate([
-        'email' => ['required', 'email'],
-    ]);
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email'],
+        ]);
 
-    $user = User::query()->where('email', $data['email'])->first();
+        $user = User::query()->where('email', $data['email'])->first();
 
-    if (!$user) {
-        return response()->json(['message' => 'Si el correo existe, se enviara un enlace de recuperacion.']);
+        if (!$user) {
+            return response()->json(['message' => 'Si el correo existe, se enviara un enlace de recuperacion.']);
+        }
+
+        $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        PasswordResetToken::query()->updateOrCreate(
+            ['email' => $user->email],
+            [
+                'token_hash' => Hash::make($code),
+                'expires_at' => now()->addMinutes(15),
+            ]
+        );
+
+        try {
+            Mail::to($user->email)->send(new \App\Mail\PasswordResetCode(
+                code: $code,
+                userName: $user->full_name,
+            ));
+        } catch (\Exception $e) {
+            \Log::error('Error al enviar correo de recuperacion: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Si el correo existe, se enviaron instrucciones para recuperar la contrasena.',
+        ]);
     }
 
-    $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
-    PasswordResetToken::query()->updateOrCreate(
-        ['email' => $user->email],
-        [
-            'token_hash' => Hash::make($code),
-            'expires_at' => now()->addMinutes(15),
-        ]
-    );
-
-    try {
-        Mail::to($user->email)->send(new \App\Mail\PasswordResetCode(
-            code: $code,
-            userName: $user->full_name,
-        ));
-    } catch (\Exception $e) {
-        \Log::error('Error al enviar correo de recuperacion: ' . $e->getMessage());
-    }
-
-    return response()->json([
-        'message' => 'Si el correo existe, se enviaron instrucciones para recuperar la contrasena.',
-    ]);
-}
     public function resetPassword(Request $request): JsonResponse
     {
         $data = $request->validate([

@@ -221,7 +221,7 @@ class DocumentController extends Controller
             'cycle_id' => ['nullable', 'integer', 'exists:academic_cycles,id'],
             'title' => ['required', 'string', 'max:180'],
             'apartado_label' => ['nullable', 'string', 'max:120'],
-            'plan' => ['nullable', 'in:nuevo_modelo,plan_normal'],
+            'plan' => ['nullable', 'in:nuevo_modelo,plan_normal,plan_despresurizada'],
             'carrera_label' => ['nullable', 'string', 'max:180'],
             'materia' => ['nullable', 'string', 'max:140'],
             'parcial' => ['nullable', 'string', 'max:40'],
@@ -320,7 +320,7 @@ class DocumentController extends Controller
         $request->validate([
             'title'         => ['nullable', 'string', 'max:255'],
             'apartado_label'=> ['nullable', 'string', 'max:100'],
-            'plan'          => ['nullable', 'string', 'in:nuevo_modelo,plan_normal,nuevo-modelo,plan-normal'],
+            'plan'          => ['nullable', 'string', 'in:nuevo_modelo,plan_normal,plan_despresurizada,nuevo-modelo,plan-normal,plan-despresurizada'],
             'carrera_label' => ['nullable', 'string', 'max:255'],
             'materia'       => ['nullable', 'string', 'max:255'],
             'parcial'       => ['nullable', 'string', 'max:50'],
@@ -335,7 +335,7 @@ class DocumentController extends Controller
 
         if (array_key_exists('plan', $payload)) {
             $normalized = str_replace('-', '_', (string) ($payload['plan'] ?? ''));
-            $payload['plan'] = in_array($normalized, ['nuevo_modelo', 'plan_normal']) ? $normalized : null;
+            $payload['plan'] = in_array($normalized, ['nuevo_modelo', 'plan_normal', 'plan_despresurizada']) ? $normalized : null;
         }
 
         // ✅ Al editar, el documento conserva su ciclo original.
@@ -520,7 +520,6 @@ class DocumentController extends Controller
         $emailSent = false;
         if ($uploader && $uploader->email) {
             try {
-                // ✅ FIX: Ya NO pasamos $submittedAt porque el Mailable no lo acepta.
                 Mail::to($uploader->email)->send(new DocumentReturned(
                     document: $document,
                     comment: $data['notes'] ?? 'Sin motivo especifico',
