@@ -9,6 +9,7 @@ use App\Mail\DocumentReturned;
 use App\Mail\DocumentReviewed;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
@@ -105,7 +106,8 @@ class DocumentController extends Controller
             }
         }
 
-        $docenteName = $document->uploader?->full_name ?: $document->uploader?->name ?: 'Sin nombre';
+               $docenteName = $document->uploader?->full_name ?: $document->uploader?->name ?: 'Sin nombre';
+        $docenteAvatar = $document->uploader?->avatar_url;
         $formTitle = $document->form?->title ?? $document->apartado_label ?? 'Documento';
 
         return [
@@ -133,6 +135,7 @@ class DocumentController extends Controller
             'form_title' => $formTitle,
             'carrera_label' => $document->carrera_label,
             'uploaded_by_name' => $docenteName,
+            'uploaded_by_avatar' => $docenteAvatar,
             'uploaded_by' => $document->uploaded_by,
             'cycle_id' => $document->cycle_id,
             'cycle_name' => $document->cycle?->name,
@@ -368,31 +371,43 @@ class DocumentController extends Controller
 
     public function destroy(Request $request, Document $document): JsonResponse
     {
-        try {
-            if (!$this->canAccessDocument($request, $document)) {
-                return response()->json([
-                    'message' => 'No tienes permiso para eliminar este documento.'
-                ], 403);
-            }
+        $isOwner = $document->uploaded_by === $request->user()?->id;
 
-            if ($document->file_path) {
-                $storedPath = $this->resolveDocumentStoragePath($document->file_path);
-                if ($storedPath && Storage::disk('public')->exists($storedPath)) {
-                    Storage::disk('public')->delete($storedPath);
-                }
-            }
-
-            $document->delete();
-
-            return response()->json([
-                'message' => 'Documento eliminado correctamente',
-                'data' => ['id' => $document->id]
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Error al eliminar el documento: ' . $e->getMessage()
-            ], 500);
+        // Solo administradores o el propio autor pueden eliminar
+        if (!$this->isAdmin($request) && !$isOwner) {
+            return response()->json(['message' => 'No tienes permiso para eliminar este documento.'], 403);
         }
+
+        $documentId = $document->id;
+        $title = $document->title;
+        $storedPath = $document->file_path ? $this->resolveDocumentStoragePath($document->file_path) : null;
+
+        try {
+            DB::transaction(function () use ($document) {
+                \App\Models\DocumentStatusHistory::where('document_id', $document->id)->delete();
+                $document->delete();
+            });
+        } catch (\Throwable $e) {
+            \Log::error('Error al eliminar documento ' . $documentId . ': ' . $e->getMessage());
+            return response()->json(['message' => 'No fue posible eliminar el documento.'], 500);
+        }
+
+        // El archivo se borra solo si la base ya lo eliminó correctamente
+        if ($storedPath && Storage::disk('public')->exists($storedPath)) {
+            Storage::disk('public')->delete($storedPath);
+        }
+
+        // Se usa error porque tu LOG_LEVEL=error no escribiría un warning
+        \Log::error('[AUDITORIA] Documento eliminado', [
+            'document_id' => $documentId,
+            'title' => $title,
+            'deleted_by' => $request->user()?->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Documento eliminado correctamente',
+            'data' => ['id' => $documentId],
+        ]);
     }
 
     public function history(Request $request, Document $document): JsonResponse
